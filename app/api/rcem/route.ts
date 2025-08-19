@@ -1,20 +1,17 @@
 // app/api/rcem/route.ts
 import { NextResponse } from "next/server";
 
-/**
- * RCEm [PLN/MWh] z PSE — aktualne do 2025-07.
- * Format: { year, monthIndex (0=styczeń ... 11=grudzień), value }
- * Uwaga: monthIndex jest 0-based.
- */
-const RCEM_ROWS: Array<{ year: number; monthIndex: number; value: number }> = [
+// RCEm [PLN/MWh] statyczne z PSE – aktualne do lipca 2025
+// monthIndex = 0 (styczeń) ... 11 (grudzień)
+const RCEM_ROWS = [
   // 2022
-  { year: 2022, monthIndex: 5, value: 659.29 },  // cze
-  { year: 2022, monthIndex: 6, value: 799.79 },  // lip
-  { year: 2022, monthIndex: 7, value: 1023.42 }, // sie
-  { year: 2022, monthIndex: 8, value: 711.92 },  // wrz
-  { year: 2022, monthIndex: 9, value: 577.24 },  // paź
-  { year: 2022, monthIndex: 10, value: 703.81 }, // lis
-  { year: 2022, monthIndex: 11, value: 716.80 }, // gru
+  { year: 2022, monthIndex: 5, value: 659.29 },
+  { year: 2022, monthIndex: 6, value: 799.79 },
+  { year: 2022, monthIndex: 7, value: 1023.42 },
+  { year: 2022, monthIndex: 8, value: 711.92 },
+  { year: 2022, monthIndex: 9, value: 577.24 },
+  { year: 2022, monthIndex: 10, value: 703.81 },
+  { year: 2022, monthIndex: 11, value: 716.80 },
 
   // 2023
   { year: 2023, monthIndex: 0, value: 596.56 },
@@ -55,7 +52,6 @@ const RCEM_ROWS: Array<{ year: number; monthIndex: number; value: number }> = [
 ];
 
 export const dynamic = "force-static";
-export const revalidate = 60 * 60 * 24; // 24h
 
 export async function GET() {
   return NextResponse.json({
