@@ -1,6 +1,5 @@
 "use client";
 
-import { Card } from "@/components/ui/card";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -20,7 +19,7 @@ type Props = {
 
 export default function PowerCurveCard({ title, data, xKey, yKey, unit }: Props) {
   return (
-    <Card className="p-4">
+    <div className="pv-card p-4">
       <div className="text-lg font-semibold mb-3">{title}</div>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
@@ -54,6 +53,6 @@ export default function PowerCurveCard({ title, data, xKey, yKey, unit }: Props)
           </AreaChart>
         </ResponsiveContainer>
       </div>
-    </Card>
+    </div>
   );
 }
