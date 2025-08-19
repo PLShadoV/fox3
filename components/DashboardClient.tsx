@@ -15,13 +15,24 @@ function normalizeHourly(gen: any): number[] {
   const arr = gen?.series || gen?.values || gen || [];
   if (!Array.isArray(arr)) return new Array(24).fill(0);
   const nums = arr.map((x:any)=> Number(x) || 0);
-  // Heuristic: if final value > sum of diffs, assume it's cumulative -> diff
+
+  // policz różnice godzinowe (jeśli wejście było narastające)
   const diffs:number[] = [];
   let prev = 0;
-  for(let i=0;i<nums.length;i++){ diffs.push(Math.max(0, +(nums[i]-prev).toFixed(3))); prev = nums[i]; }
+  for(let i=0;i<nums.length;i++){
+    diffs.push(Math.max(0, +(nums[i]-prev).toFixed(3)));
+    prev = nums[i];
+  }
+
+  // heurystyka: jeżeli suma wejścia dużo większa od sumy różnic -> wejście było narastające
   const sumNums = nums.reduce((a,b)=>a+b,0);
   const sumDiffs = diffs.reduce((a,b)=>a+b,0);
-  return (sumNums>sumDiffs*1.8) ? diffs.slice(0,24) : nums.slice(0,24);
+  const hourly = (sumNums > sumDiffs * 1.8) ? diffs : nums;
+
+  // dopasuj do 24 punktów
+  const out = hourly.slice(0,24);
+  while (out.length < 24) out.push(0);
+  return out;
 }
 
 export default function DashboardClient(){
@@ -34,7 +45,7 @@ export default function DashboardClient(){
   const [loading, setLoading] = useState(false);
   const lastRealtimeFetch = useRef<number>(0);
 
-  // fetch realtime every 60s, but always show even when browsing other date
+  // fetch realtime co 60 s, ale pokazuj niezależnie od wybranego dnia
   useEffect(()=>{
     let stop = false;
     async function tick(){
@@ -49,25 +60,24 @@ export default function DashboardClient(){
           const w = j?.pvNowW ?? j?.pvNow ?? j?.watt ?? null;
           if(typeof w === 'number') setPvNow(w);
         }
-      }catch{}
+      }catch{/* ignore */}
     }
     tick();
-    const id = setInterval(tick, 6000);
+    const id = setInterval(tick, 60000);
     return ()=>{ stop=true; clearInterval(id); };
   }, []);
 
   async function loadDay(d:string){
     setErr(null); setLoading(true);
     try{
-      // FoxESS day (expects existing endpoint in your project)
+      // FoxESS day
       const fr = await fetch(`/api/foxess/day?date=${encodeURIComponent(d)}`);
       const fj = await fr.json();
       if(!fr.ok || fj.ok===false) throw new Error(fj.error || 'FoxESS day error');
       const hourly = normalizeHourly(fj?.today?.generation || fj?.generation || fj?.result?.[0]);
-      while(hourly.length<24) hourly.push(0);
-      setGenSeries(hourly.slice(0,24));
+      setGenSeries(hourly);
 
-      // RCE hourly if available
+      // RCE hourly (opcjonalnie)
       const rr = await fetch(`/api/rce/day?date=${encodeURIComponent(d)}`);
       if(rr.ok){
         const rj = await rr.json();
@@ -77,7 +87,9 @@ export default function DashboardClient(){
           rce_pln_mwh: Number(x.rce_pln_mwh ?? x.price_pln_mwh ?? 0)
         })) : null;
         setRce(mapped);
-      }else setRce(null);
+      }else{
+        setRce(null);
+      }
     }catch(e:any){
       setErr(e.message);
     }finally{ setLoading(false); }
@@ -85,7 +97,10 @@ export default function DashboardClient(){
 
   useEffect(()=>{ loadDay(date); }, [date]);
 
-  const chartData:HourPoint[] = useMemo(()=> genSeries.map((k,i)=>({t:fmtHour(i), kwh:k})), [genSeries]);
+  const chartData: HourPoint[] = useMemo(
+    () => genSeries.map((k, i) => ({ hour: i, t: fmtHour(i), kwh: k })),
+    [genSeries]
+  );
 
   const rows = useMemo(()=> {
     const price = mode==='rcem' ? (rcemFor(date) || 0) : 0;
@@ -93,7 +108,7 @@ export default function DashboardClient(){
       const p = mode==='rce' ? (rce?.[i]?.rce_pln_mwh ?? null) : price;
       const used = (p==null ? null : Math.max(0, p));
       const revenue = used==null ? null : (kwh * used / 1000);
-      return { hour: fmtHour(i), kwh, price: used, revenue };
+      return { hour: fmtHour(i), kwh, price: used ?? undefined, revenue: revenue ?? undefined };
     });
   }, [genSeries, rce, mode, date]);
 
@@ -104,8 +119,8 @@ export default function DashboardClient(){
     <>
       <div className="hstack" style={{marginBottom:12, alignItems:'center'}}>
         <div style={{fontSize:28, fontWeight:800}}>FoxESS × RCE</div>
-        <a className="chip link" href="https://www.foxesscloud.com/" target="_blank">FoxESS</a>
-        <a className="chip link" href="https://raporty.pse.pl/report/rce-pln" target="_blank">RCE (PSE)</a>
+        <a className="chip link" href="https://www.foxesscloud.com/" target="_blank" rel="noopener noreferrer">FoxESS</a>
+        <a className="chip link" href="https://raporty.pse.pl/report/rce-pln" target="_blank" rel="noopener noreferrer">RCE (PSE)</a>
         <div className="spacer" />
         <ThemeToggle />
         <button className="chip" onClick={()=>setDate(new Date().toISOString().slice(0,10))}>Dziś</button>
@@ -130,7 +145,8 @@ export default function DashboardClient(){
         {mode==='rce' && !rce && <div className="notice">Brak danych RCE dla tego dnia — przełącz na RCEm.</div>}
       </div>
 
-      <PowerChart data={chartData} title={`Moc [kW] — ${date}`} />
+      {/* BEZ title, jeśli PowerChart go nie obsługuje */}
+      <PowerChart data={chartData} />
 
       <div style={{height:12}} />
 
