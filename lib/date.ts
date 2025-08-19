@@ -1,40 +1,36 @@
-// Utility date helpers for the dashboard
-// All functions operate in LOCAL time (not UTC).
+// lib/date.ts
+// Small date helpers used across the app.
 
-/** Format hour (0-23) as "HH:00". */
-export function fmtHour(h: number): string {
-  const n = Math.max(0, Math.min(23, Math.floor(Number(h) || 0)));
-  return `${String(n).padStart(2, "0")}:00`;
+/** Format an integer hour (0..23) as HH:00 */
+export function fmtHour(hour: number): string {
+  const h = Math.max(0, Math.min(23, Math.floor(hour)));
+  return `${String(h).padStart(2, "0")}:00`;
 }
 
-/** Convert Date (local) to ISO date "YYYY-MM-DD". */
-export function toISODate(d: Date): string {
+/** Return YYYY-MM-DD for a given Date/string/epoch (in local time). */
+export function toISODate(input?: Date | string | number): string {
+  const d = input instanceof Date ? input : (input ? new Date(input) : new Date());
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
 
-/** Parse "YYYY-MM-DD" into Date at local midnight. */
-export function parseISODate(iso: string): Date {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) {
-    throw new Error(`Invalid ISO date: ${iso}`);
-  }
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, (m as number) - 1, d);
+/** Parse 'YYYY-MM-DD' to a Date (local midnight). */
+export function parseISODate(dateISO: string): Date {
+  const [y, m, d] = dateISO.split("-").map((x) => Number(x));
+  // Months are 0-based in JS Date
+  return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0);
 }
 
-/** Check if given ISO date is today (local). */
-export function isTodayISO(iso: string): boolean {
-  try {
-    const today = toISODate(new Date());
-    return today === iso;
-  } catch {
-    return false;
-  }
+/** True if dateISO is the same local day as today. */
+export function isToday(dateISO: string): boolean {
+  return toISODate(new Date()) === dateISO;
 }
 
-/** Current local hour (0-23). */
-export function currentHourLocal(): number {
+/** Current local hour as integer (0..23). */
+export function currentHour(): number {
   return new Date().getHours();
 }
+
+export default {};
