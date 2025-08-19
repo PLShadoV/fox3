@@ -1,32 +1,40 @@
+// Utility date helpers for the dashboard
+// All functions operate in LOCAL time (not UTC).
+
+/** Format hour (0-23) as "HH:00". */
 export function fmtHour(h: number): string {
-  const n = Math.max(0, Math.min(23, Math.floor(Number.isFinite(h) ? h : 0)));
-  return `${n.toString().padStart(2, "0")}:00`;
+  const n = Math.max(0, Math.min(23, Math.floor(Number(h) || 0)));
+  return `${String(n).padStart(2, "0")}:00`;
 }
 
+/** Convert Date (local) to ISO date "YYYY-MM-DD". */
 export function toISODate(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return `${y}-${m}-${day}`;
 }
 
-export function parseISODate(s: string): Date {
-  // Accept YYYY-MM-DD only; fall back to today if invalid
-  if (!/\d{4}-\d{2}-\d{2}/.test(s)) return new Date();
-  const [y, m, d] = s.split("-").map((x) => parseInt(x, 10));
-  // Construct in local time to match UI expectations
-  return new Date(y, (m ?? 1) - 1, d ?? 1);
+/** Parse "YYYY-MM-DD" into Date at local midnight. */
+export function parseISODate(iso: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) {
+    throw new Error(`Invalid ISO date: ${iso}`);
+  }
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, (m as number) - 1, d);
 }
 
+/** Check if given ISO date is today (local). */
 export function isTodayISO(iso: string): boolean {
   try {
-    const d = parseISODate(iso);
-    return toISODate(d) === toISODate(new Date());
+    const today = toISODate(new Date());
+    return today === iso;
   } catch {
     return false;
   }
 }
 
+/** Current local hour (0-23). */
 export function currentHourLocal(): number {
   return new Date().getHours();
 }
