@@ -1,3 +1,4 @@
+// components/RangeCalculator.tsx
 'use client';
 import { useState } from 'react';
 
@@ -10,31 +11,52 @@ function toISO(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
+// + pomocniczo:
+function toYM(dateStr: string) {
+  // dateStr: 'YYYY-MM-DD' -> 'YYYY-MM'
+  return dateStr?.slice(0, 7);
+}
+
 export default function RangeCalculator() {
   const [from, setFrom] = useState<string>('');
   const [to, setTo] = useState<string>('');
-  const [mode, setMode] = useState<Mode>('rce');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [sum, setSum] = useState<{kwh:number, revenue_pln:number} | null>(null);
+  // ZMIANA: domyślnie 'rcem'
+  const [mode, setMode] = useState<Mode>('rcem');
 
-  async function onCompute() {
-    setLoading(true);
-    setError(null);
-    setSum(null);
-    try {
-      if (!from || !to) throw new Error('Podaj zakres dat');
-      const url = `/api/range/compute?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&mode=${mode}`;
-      const r = await fetch(url);
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || 'Błąd liczenia');
+  const [loading, setLoading] = useState(false);
+  const [error, setError]   = useState<string | null>(null);
+  const [sum, setSum]       = useState<{ kwh:number; revenue_pln:number; rcem_price_pln_mwh?: number } | null>(null);
+
+  const onCompute = async () => {
+    try{
+      setLoading(true);
+      setError(null);
+      setSum(null);
+
+      if (!from || !to) {
+        setError('Uzupełnij obie daty.');
+        return;
+      }
+      const ym = toYM(from) ?? '';
+
+      const qs = new URLSearchParams({ from, to, mode, ym });
+      const res = await fetch(`/api/range/compute?${qs.toString()}`, { cache: 'no-store' });
+      const j = await res.json();
+      if (!j?.ok) {
+        throw new Error(j?.error || 'Błąd liczenia');
+      }
+      // j.sum może zawierać rcem_price_pln_mwh (doda to backend, patrz niżej)
       setSum(j.sum);
-    } catch (e:any) {
-      setError(String(e.message || e));
+    } catch(e:any){
+      setError(e?.message || String(e));
     } finally {
       setLoading(false);
     }
-  }
+  };
+
+  // ...reszta pliku bez zmian (UI, przyciski trybu itp.)
+}
+
 
   return (
     <div className="pv-card p-4 mt-6">
