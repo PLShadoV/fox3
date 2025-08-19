@@ -23,7 +23,7 @@ async function tryManyRealtime(paths: string[]){
     try {
       const j = await getJSON(p);
       if (j && j.pvNowW != null) return j;
-    } catch{ /* try next */ }
+    } catch{}
   }
   throw new Error("Realtime data unavailable");
 }
@@ -34,12 +34,7 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
   const [pvNowW, setPvNowW] = useState<number|null>(null);
   const [genTotal, setGenTotal] = useState<number|null>(null);
   const [genSeries, setGenSeries] = useState<number[]>([]);
-  const [energyDaily, setEnergyDaily] = useState<{hour:string;kwh:number}[]>([]);
-  const [energyMonthly, setEnergyMonthly] = useState<{day:string;kwh:number}[]>([]);
-  const [energyYearly, setEnergyYearly] = useState<{month:string;kwh:number}[]>([]);
-  const [revenue, setRevenue] = useState<{ rows: RevenueRow[], total: number|null }>({
-    rows: [], total: null
-  });
+  const [revenue, setRevenue] = useState<{ rows: RevenueRow[], total: number|null }>({ rows: [], total: null });
   const [calcMode, setCalcMode] = useState<"rce"|"rcem">("rce");
   const [err, setErr] = useState<string| null>(null);
   const lastPv = useRef<number|null>(null);
@@ -75,12 +70,11 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
     return ()=> { alive = false; clearInterval(t); };
   }, []);
 
-  // Dzień / Miesiąc / Rok
+  // Dane dzienne + przychód
   useEffect(()=>{
     let cancelled = false;
     setErr(null);
 
-    // dzień
     getJSON(`/api/foxess/summary/day-cached?date=${date}`)
       .then(j => {
         if (cancelled) return;
@@ -88,51 +82,18 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
         const series = j?.today?.generation?.series ?? [];
         setGenTotal(total);
         setGenSeries(Array.isArray(series) ? series : []);
-        const dailyData = (Array.isArray(series) ? series : []).map((kwh: number, i: number) => ({
-          hour: `${String(i).padStart(2,"0")}:00`,
-          kwh: Number(kwh) || 0,
-        }));
-        setEnergyDaily(dailyData);
       })
       .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
 
-    // przychód
     getJSON(`/api/revenue/day?date=${date}&mode=${calcMode}`)
       .then(j => { if (!cancelled) setRevenue({ rows: j?.rows || [], total: j?.totals?.revenue_pln ?? null }); })
-      .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
-
-    // miesiąc
-    const monthStr = date.slice(0,7);
-    getJSON(`/api/foxess/summary/month?month=${monthStr}`)
-      .then(j => {
-        if (cancelled) return;
-        const monthlyData = (j?.days || []).map((d:any) => ({
-          day: d.date?.slice(-2) || "",
-          kwh: Number(d.generation) || 0,
-        }));
-        setEnergyMonthly(monthlyData);
-      })
-      .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
-
-    // rok
-    const yearStr = date.slice(0,4);
-    getJSON(`/api/foxess/summary/year?year=${yearStr}`)
-      .then(j => {
-        if (cancelled) return;
-        const yearlyData = (j?.months || []).map((m:any) => ({
-          month: m.month,
-          kwh: Number(m.generation) || 0,
-        }));
-        setEnergyYearly(yearlyData);
-      })
       .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
 
     return ()=> { cancelled = true; }
   }, [date, calcMode]);
 
-  function easeInOutCubic(t:number){
-    return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3)/2;
-  }
+  // krzywa mocy (złagodzona)
+  function easeInOutCubic(t:number){ return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3)/2; }
 
   const powerWave = useMemo(()=>{
     const today = new Date().toISOString().slice(0,10);
@@ -198,11 +159,8 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
 
       <RangeCalculator />
 
-      <RangeEnergyChart
-        daily={energyDaily}
-        monthly={energyMonthly}
-        yearly={energyYearly}
-      />
+      {/* NOWY wykres energii z auto-ładowaniem i przełącznikiem widoku */}
+      <RangeEnergyChart initialDate={date} />
 
       <RcemMonthlyCard />
     </div>
