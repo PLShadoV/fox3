@@ -1,17 +1,20 @@
 // app/api/rcem/route.ts
 import { NextResponse } from "next/server";
 
-// Statyczne RCEm [PLN/MWh] z PSE (aktualne do 2025-07).
-// Format: { year, monthIndex (0=styczeń ... 11=grudzień), value }
+/**
+ * RCEm [PLN/MWh] z PSE — aktualne do 2025-07.
+ * Format: { year, monthIndex (0=styczeń ... 11=grudzień), value }
+ * Uwaga: monthIndex jest 0-based.
+ */
 const RCEM_ROWS: Array<{ year: number; monthIndex: number; value: number }> = [
   // 2022
-  { year: 2022, monthIndex: 5, value: 659.29 },  // czerwiec
-  { year: 2022, monthIndex: 6, value: 799.79 },  // lipiec
-  { year: 2022, monthIndex: 7, value: 1023.42 }, // sierpień
-  { year: 2022, monthIndex: 8, value: 711.92 },  // wrzesień
-  { year: 2022, monthIndex: 9, value: 577.24 },  // październik
-  { year: 2022, monthIndex: 10, value: 703.81 }, // listopad
-  { year: 2022, monthIndex: 11, value: 716.80 }, // grudzień
+  { year: 2022, monthIndex: 5, value: 659.29 },  // cze
+  { year: 2022, monthIndex: 6, value: 799.79 },  // lip
+  { year: 2022, monthIndex: 7, value: 1023.42 }, // sie
+  { year: 2022, monthIndex: 8, value: 711.92 },  // wrz
+  { year: 2022, monthIndex: 9, value: 577.24 },  // paź
+  { year: 2022, monthIndex: 10, value: 703.81 }, // lis
+  { year: 2022, monthIndex: 11, value: 716.80 }, // gru
 
   // 2023
   { year: 2023, monthIndex: 0, value: 596.56 },
@@ -51,18 +54,13 @@ const RCEM_ROWS: Array<{ year: number; monthIndex: number; value: number }> = [
   { year: 2025, monthIndex: 6, value: 284.83 },
 ];
 
-export const dynamic = "force-static";      // stała odpowiedź
-export const revalidate = 60 * 60 * 24;     // 24h (na wszelki wypadek)
+export const dynamic = "force-static";
+export const revalidate = 60 * 60 * 24; // 24h
 
 export async function GET() {
-  try {
-    return NextResponse.json({
-      ok: true,
-      updated_to: "2025-07",
-      source: "https://www.pse.pl/oire/rcem-rynkowa-miesieczna-cena-energii-elektrycznej",
-      rows: RCEM_ROWS,
-    });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 200 });
-  }
+  return NextResponse.json({
+    ok: true,
+    updated_to: "2025-07",
+    rows: RCEM_ROWS,
+  });
 }
