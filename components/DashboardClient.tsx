@@ -7,8 +7,9 @@ import RangeButtons from "@/components/RangeButtons";
 import PowerCurveCard from "@/components/PowerCurveCard";
 import HourlyRevenueTable from "@/components/HourlyRevenueTable";
 import RangeCalculator from "@/components/RangeCalculator";
-import RcemMonthlyCard from "@/components/RcemMonthlyCard"; // <— ZAMIANA
+import RcemMonthlyCard from "@/components/RcemMonthlyCard";
 import ThemeToggle from "@/components/ThemeToggle";
+import RangeEnergyChart from "@/components/RangeEnergyChart";
 
 type RevenueRow = { hour:number;kwh:number;price_pln_mwh:number;price_used_pln_mwh:number;revenue_pln:number; };
 
@@ -32,6 +33,9 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
   const [date, setDate] = useState(initialDate);
   const [pvNowW, setPvNowW] = useState<number|null>(null);
   const [genTotal, setGenTotal] = useState<number|null>(null);
+  const [energyDaily, setEnergyDaily] = useState<{hour:string;kwh:number}[]>([]);
+  const [energyMonthly, setEnergyMonthly] = useState<{day:string;kwh:number}[]>([]);
+  const [energyYearly, setEnergyYearly] = useState<{month:string;kwh:number}[]>([]);
   const [genSeries, setGenSeries] = useState<number[]>([]);
   const [revenue, setRevenue] = useState<{ rows: RevenueRow[], total: number|null }>({
     rows: [], total: null
@@ -71,11 +75,12 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
     return ()=> { alive = false; clearInterval(t); };
   }, []);
 
-  // Dzień – dane bazowe
+  // Dzień / Miesiąc / Rok
   useEffect(()=>{
     let cancelled = false;
     setErr(null);
 
+    // dzień
     getJSON(`/api/foxess/summary/day-cached?date=${date}`)
       .then(j => {
         if (cancelled) return;
@@ -83,11 +88,43 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
         const series = j?.today?.generation?.series ?? [];
         setGenTotal(total);
         setGenSeries(Array.isArray(series) ? series : []);
+        const dailyData = series.map((kwh: number, i: number) => ({
+          hour: `${String(i).padStart(2,"0")}:00`,
+          kwh: kwh || 0,
+        }));
+        setEnergyDaily(dailyData);
       })
       .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
 
+    // przychód
     getJSON(`/api/revenue/day?date=${date}&mode=${calcMode}`)
       .then(j => { if (!cancelled) setRevenue({ rows: j?.rows || [], total: j?.totals?.revenue_pln ?? null }); })
+      .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
+
+    // miesiąc
+    const monthStr = date.slice(0,7);
+    getJSON(`/api/foxess/summary/month?month=${monthStr}`)
+      .then(j => {
+        if (cancelled) return;
+        const monthlyData = (j?.days || []).map((d:any) => ({
+          day: d.date.slice(-2),
+          kwh: d.generation ?? 0,
+        }));
+        setEnergyMonthly(monthlyData);
+      })
+      .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
+
+    // rok
+    const yearStr = date.slice(0,4);
+    getJSON(`/api/foxess/summary/year?year=${yearStr}`)
+      .then(j => {
+        if (cancelled) return;
+        const yearlyData = (j?.months || []).map((m:any) => ({
+          month: m.month,
+          kwh: m.generation ?? 0,
+        }));
+        setEnergyYearly(yearlyData);
+      })
       .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
 
     return ()=> { cancelled = true; }
@@ -160,6 +197,12 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
       </div>
 
       <RangeCalculator />
+
+      <RangeEnergyChart
+        daily={energyDaily}
+        monthly={energyMonthly}
+        yearly={energyYearly}
+      />
 
       <RcemMonthlyCard />
     </div>
