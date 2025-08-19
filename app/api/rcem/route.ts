@@ -1,9 +1,9 @@
 // app/api/rcem/route.ts
 import { NextResponse } from "next/server";
 
-// RCEm [PLN/MWh] statyczne z PSE – aktualne do lipca 2025
-// monthIndex = 0 (styczeń) ... 11 (grudzień)
-const RCEM_ROWS = [
+// RCEm [PLN/MWh] – aktualne do 2025-07
+// monthIndex: 0=styczeń ... 11=grudzień
+const RCEM_ROWS: Array<{ year: number; monthIndex: number; value: number }> = [
   // 2022
   { year: 2022, monthIndex: 5, value: 659.29 },
   { year: 2022, monthIndex: 6, value: 799.79 },
@@ -52,8 +52,10 @@ const RCEM_ROWS = [
 ];
 
 export const dynamic = "force-static";
+export const revalidate = 60 * 60 * 24; // 24h
 
 export async function GET() {
+  // ZAWSZE: { ok:true, rows:[...] }
   return NextResponse.json({
     ok: true,
     updated_to: "2025-07",

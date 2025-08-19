@@ -24,14 +24,12 @@ export default function RcemMonthlyCard() {
         if (!res.ok) throw new Error(`/api/rcem HTTP ${res.status}`);
         const j = await res.json();
 
-        const candidate =
-          (Array.isArray(j?.rows) && j.rows) ||
-          (Array.isArray(j?.data?.rows) && j.data.rows) ||
-          (Array.isArray(j?.prices) && j.prices) ||
-          (Array.isArray(j?.data?.prices) && j.data.prices) ||
-          [];
+        // oczekujemy dokładnie: { ok:true, rows:[...] }
+        if (!j?.ok || !Array.isArray(j?.rows)) {
+          throw new Error("RCEm endpoint zwrócił nieoczekiwany kształt odpowiedzi");
+        }
 
-        const norm: Row[] = candidate
+        const norm: Row[] = j.rows
           .map((r: any) => ({
             year: Number(r?.year),
             monthIndex: Number(r?.monthIndex),
@@ -43,7 +41,8 @@ export default function RcemMonthlyCard() {
               Number.isFinite(r.monthIndex) &&
               Number.isFinite(r.value)
           )
-          .sort((a, b) => a.year - b.year || a.monthIndex - b.monthIndex);
+          // najnowsze u góry: sort malejąco po (year, monthIndex)
+          .sort((a, b) => (b.year - a.year) || (b.monthIndex - a.monthIndex));
 
         if (!cancelled) setRows(norm);
       })
