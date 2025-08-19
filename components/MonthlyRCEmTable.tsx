@@ -2,66 +2,91 @@
 
 import { useEffect, useState } from "react";
 
-type Item = { year:number; monthIndex:number; monthLabel:string; value:number|null; ym?:string };
+type Row = { year: number; monthIndex: number; value: number };
 
-export default function MonthlyRCEmTable(){
-  const [items, setItems] = useState<Item[]>([]);
-  const [note, setNote] = useState<string>("");
-  const [loading, setLoading] = useState(false);
+function ymLabel(y: number, mi: number) {
+  return `${y}-${String(mi + 1).padStart(2, "0")}`;
+}
 
-  useEffect(()=>{
+export default function MonthlyRCEmTable() {
+  const [rows, setRows] = useState<Row[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
+
     fetch("/api/rcem", { cache: "no-store" })
-      .then(r => r.json())
-      .then(async j => {
-        if (cancelled) return;
-        if (j?.ok && Array.isArray(j.items) && j.items.length){
-          setItems(j.items);
-          setNote("Źródło: PSE (RCEm – miesięczna).");
-        } else {
-          const r = await fetch("/api/rce/month-avg", { cache: "no-store" });
-          const jj = await r.json();
-          const rows = (jj?.items || []).map((x:any)=>({year: x.year, monthIndex: x.monthIndex, monthLabel: x.monthLabel, value: x.value, ym: x.ym}));
-          // sort DESC by ym
-          rows.sort((a:any,b:any)=> (b.year - a.year) || (b.monthIndex - a.monthIndex));
-          setItems(rows);
-          setNote("Brak danych z PSE – pokazuję średnie miesięczne z godzinowego RCE (fallback).");
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`/api/rcem HTTP ${res.status}`);
+        const j = await res.json();
+
+        // oczekujemy dokładnie: { ok:true, rows:[...] }
+        if (!j?.ok || !Array.isArray(j?.rows)) {
+          throw new Error("RCEm endpoint zwrócił nieoczekiwany kształt odpowiedzi");
         }
+
+        const norm: Row[] = j.rows
+          .map((r: any) => ({
+            year: Number(r.year),
+            monthIndex: Number(r.monthIndex),
+            value: Number(r.value),
+          }))
+          .filter(
+            (r) =>
+              Number.isFinite(r.year) &&
+              Number.isFinite(r.monthIndex) &&
+              Number.isFinite(r.value)
+          )
+          // najnowsze na górze
+          .sort((a, b) => (b.year - a.year) || (b.monthIndex - a.monthIndex));
+
+        if (!cancelled) setRows(norm);
       })
-      .catch(()=> setNote("Nie udało się pobrać RCEm."))
-      .finally(()=> setLoading(false));
-    return ()=> { cancelled = true; };
+      .catch((e: any) => !cancelled && setError(e?.message || String(e)))
+      .finally(() => !cancelled && setLoading(false));
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
-    <div className="pv-card p-5">
-      <div className="mb-3 pv-title font-medium">RCEm – miesięczne ceny (PLN/MWh)</div>
-      <div className="overflow-x-auto">
-        <table className="min-w-[520px] w-full text-sm">
-          <thead className="opacity-80">
-            <tr>
-              <th className="text-left py-2 pr-4 font-normal">Rok</th>
-              <th className="text-left py-2 pr-4 font-normal">Miesiąc</th>
-              <th className="text-right py-2 font-normal">RCEm (PLN/MWh)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td className="py-3 opacity-80" colSpan={3}>Wczytywanie…</td></tr>
-            ) : items.length ? items.map((it, i)=> (
-              <tr key={i} className="border-t" style={{ borderColor: "var(--pv-border)" }}>
-                <td className="py-2 pr-4">{it.year}</td>
-                <td className="py-2 pr-4 capitalize">{it.monthLabel}</td>
-                <td className="py-2 text-right">{it.value != null ? it.value.toFixed(2) : "-"}</td>
+    <div className="pv-card p-4">
+      <div className="text-xl font-semibold mb-3">RCEm – miesięczne ceny (PLN/MWh)</div>
+
+      {loading && <div className="opacity-80 text-sm">Ładowanie…</div>}
+      {error && <div className="text-red-400 text-sm break-words">{error}</div>}
+
+      {!loading && !error && (
+        <div className="overflow-x-auto">
+          <table className="min-w-[420px] text-sm">
+            <thead>
+              <tr className="text-left border-b border-white/10">
+                <th className="py-2 pr-4">Miesiąc</th>
+                <th className="py-2">Cena [PLN/MWh]</th>
               </tr>
-            )) : (
-              <tr><td className="py-3 opacity-80" colSpan={3}>Brak danych</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      {note ? <div className="mt-2 text-xs opacity-70">{note}</div> : null}
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={`${r.year}-${r.monthIndex}`} className="border-b border-white/5">
+                  <td className="py-1 pr-4 font-mono">{ymLabel(r.year, r.monthIndex)}</td>
+                  <td className="py-1">{r.value.toFixed(2)}</td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={2} className="py-2 opacity-70">
+                    Brak danych do wyświetlenia.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
