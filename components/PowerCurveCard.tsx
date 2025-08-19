@@ -1,43 +1,59 @@
 "use client";
 
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceDot, Area } from "recharts";
+import { Card } from "@/components/ui/card";
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from "recharts";
 
-export default function PowerCurveCard({
-  title, data, xKey, yKey, unit = "kW", showLatest = true
-}:{
+type Props = {
   title: string;
-  data: any[];
+  data: { x: string; kw: number }[];
   xKey: string;
   yKey: string;
   unit?: string;
-  showLatest?: boolean;
-}){
-  const last = data?.length ? data[data.length - 1] : null;
+};
+
+export default function PowerCurveCard({ title, data, xKey, yKey, unit }: Props) {
   return (
-    <div className="pv-card p-5">
-      <div className="text-sm mb-2 pv-title/60">{title}</div>
+    <Card className="p-4">
+      <div className="text-lg font-semibold mb-3">{title}</div>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data}>
+          <AreaChart data={data}>
             <defs>
-              <linearGradient id="powFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.35} />
-                <stop offset="60%" stopColor="#38bdf8" stopOpacity={0.18} />
-                <stop offset="100%" stopColor="#38bdf8" stopOpacity={0.08} />
+              <linearGradient id="colorGen" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.6} />
+                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey={xKey} minTickGap={30} />
-            <YAxis tickFormatter={(v)=> String(v)} label={{ value: unit, angle: -90, position: "insideLeft" }} />
-            <Tooltip formatter={(val)=> `${Number(val).toFixed(2)} ${unit}`} />
-            <Area type="monotone" dataKey={yKey} fill="url(#powFill)" stroke="none" />
-            <Line type="monotone" dataKey={yKey} stroke="#0ea5e9" strokeWidth={2} dot={false} isAnimationActive={true} animationDuration={500} />
-            {showLatest && last ? (
-              <ReferenceDot x={last[xKey]} y={last[yKey]} r={4} fill="#0ea5e9" />
-            ) : null}
-          </LineChart>
+            <XAxis dataKey={xKey} tick={{ fontSize: 10 }} />
+            <YAxis
+              tick={{ fontSize: 10 }}
+              width={50}
+              unit={unit || ""}
+              allowDecimals
+            />
+            <Tooltip
+              formatter={(val: any) => [`${val.toFixed(2)} ${unit || ""}`, "Moc"]}
+              labelFormatter={(label) => `Godzina: ${label}`}
+            />
+            <Area
+              type="monotone"
+              dataKey={yKey}
+              stroke="#3b82f6"
+              fill="url(#colorGen)"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
+          </AreaChart>
         </ResponsiveContainer>
       </div>
-    </div>
+    </Card>
   );
 }
