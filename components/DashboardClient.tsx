@@ -33,10 +33,10 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
   const [date, setDate] = useState(initialDate);
   const [pvNowW, setPvNowW] = useState<number|null>(null);
   const [genTotal, setGenTotal] = useState<number|null>(null);
+  const [genSeries, setGenSeries] = useState<number[]>([]);
   const [energyDaily, setEnergyDaily] = useState<{hour:string;kwh:number}[]>([]);
   const [energyMonthly, setEnergyMonthly] = useState<{day:string;kwh:number}[]>([]);
   const [energyYearly, setEnergyYearly] = useState<{month:string;kwh:number}[]>([]);
-  const [genSeries, setGenSeries] = useState<number[]>([]);
   const [revenue, setRevenue] = useState<{ rows: RevenueRow[], total: number|null }>({
     rows: [], total: null
   });
@@ -88,9 +88,9 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
         const series = j?.today?.generation?.series ?? [];
         setGenTotal(total);
         setGenSeries(Array.isArray(series) ? series : []);
-        const dailyData = series.map((kwh: number, i: number) => ({
+        const dailyData = (Array.isArray(series) ? series : []).map((kwh: number, i: number) => ({
           hour: `${String(i).padStart(2,"0")}:00`,
-          kwh: kwh || 0,
+          kwh: Number(kwh) || 0,
         }));
         setEnergyDaily(dailyData);
       })
@@ -107,8 +107,8 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
       .then(j => {
         if (cancelled) return;
         const monthlyData = (j?.days || []).map((d:any) => ({
-          day: d.date.slice(-2),
-          kwh: d.generation ?? 0,
+          day: d.date?.slice(-2) || "",
+          kwh: Number(d.generation) || 0,
         }));
         setEnergyMonthly(monthlyData);
       })
@@ -121,7 +121,7 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
         if (cancelled) return;
         const yearlyData = (j?.months || []).map((m:any) => ({
           month: m.month,
-          kwh: m.generation ?? 0,
+          kwh: Number(m.generation) || 0,
         }));
         setEnergyYearly(yearlyData);
       })

@@ -28,15 +28,18 @@ export default function RangeEnergyChart({ daily, monthly, yearly }: Props) {
   let labelTitle = "";
 
   if (view === "day") {
-    data = daily.map((d) => ({ label: d.hour, kwh: d.kwh }));
+    data = (daily || []).map((d) => ({ label: d.hour, kwh: d.kwh || 0 }));
     labelTitle = "Godzina";
   } else if (view === "month") {
-    data = monthly.map((m) => ({ label: m.day, kwh: m.kwh }));
+    data = (monthly || []).map((m) => ({ label: m.day, kwh: m.kwh || 0 }));
     labelTitle = "Dzień";
   } else {
-    data = yearly.map((y) => ({ label: y.month, kwh: y.kwh }));
+    data = (yearly || []).map((y) => ({ label: y.month, kwh: y.kwh || 0 }));
     labelTitle = "Miesiąc";
   }
+
+  const hasAny = data.length > 0;
+  const allZero = hasAny && data.every((d) => !d.kwh);
 
   return (
     <div className="pv-card p-4">
@@ -64,20 +67,32 @@ export default function RangeEnergyChart({ daily, monthly, yearly }: Props) {
         </div>
       </div>
 
-      <div className="h-72">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-            <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-            <YAxis tick={{ fontSize: 10 }} width={60} unit=" kWh" />
-            <Tooltip
-              formatter={(val: any) => [`${val.toFixed(2)} kWh`, "Energia"]}
-              labelFormatter={(label) => `${labelTitle}: ${label}`}
-            />
-            <Bar dataKey="kwh" fill="#10b981" />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      {!hasAny ? (
+        <div className="h-72 grid place-items-center opacity-70 text-sm">
+          Brak danych do wyświetlenia.
+        </div>
+      ) : (
+        <div className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+              <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} width={60} unit=" kWh" />
+              <Tooltip
+                formatter={(val: any) => [`${Number(val).toFixed(2)} kWh`, "Energia"]}
+                labelFormatter={(label) => `${labelTitle}: ${label}`}
+              />
+              <Bar dataKey="kwh" fill="#10b981" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {hasAny && allZero && (
+        <div className="mt-2 text-xs opacity-70">
+          Uwaga: wszystkie wartości wynoszą 0 kWh — wykres może wyglądać na pusty.
+        </div>
+      )}
     </div>
   );
 }

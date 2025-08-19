@@ -1,39 +1,59 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const month = searchParams.get("month"); // "YYYY-MM"
-  if (!month) return NextResponse.json({ ok:false, error:"month required" }, { status:400 });
+function originFrom(req: NextRequest) {
+  const proto = req.headers.get("x-forwarded-proto") ?? "https";
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? new URL(req.url).host;
+  return `${proto}://${host}`;
+}
 
+function daysInMonth(year: number, monthIndexZeroBased: number) {
+  return new Date(year, monthIndexZeroBased + 1, 0).getDate();
+}
+
+export async function GET(req: NextRequest) {
   try {
-    // wywołanie FoxESS API
-    const fox = await fetch(`${process.env.FOXESS_BASE}/op/v1/device/energy/month`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "token": process.env.FOXESS_TOKEN || "",
-      },
-      body: JSON.stringify({
-        sn: process.env.FOXESS_SN,  // SN falownika np. "603T253021ND064"
-        month,
-      }),
-      cache: "no-store"
-    });
-
-    if (!fox.ok) {
-      return NextResponse.json({ ok:false, error:`FoxESS HTTP ${fox.status}` }, { status:502 });
+    const { searchParams } = new URL(req.url);
+    const month = searchParams.get("month"); // "YYYY-MM"
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+      return NextResponse.json({ ok: false, error: "month param (YYYY-MM) required" }, { status: 200 });
+    }
+    const [yStr, mStr] = month.split("-");
+    const year = Number(yStr);
+    const mi = Number(mStr) - 1;
+    if (!Number.isFinite(year) || !Number.isFinite(mi) || mi < 0 || mi > 11) {
+      return NextResponse.json({ ok: false, error: "invalid month" }, { status: 200 });
     }
 
-    const data = await fox.json();
+    const base = originFrom(req);
+    const nDays = daysInMonth(year, mi);
+    const dates: string[] = Array.from({ length: nDays }, (_, i) => {
+      const d = String(i + 1).padStart(2, "0");
+      return `${yStr}-${mStr}-${d}`;
+    });
 
-    // normalizacja — FoxESS zwraca np. [{date:"2025-07-01", value:12.3}, ...]
-    const days = (data?.result || []).map((d:any)=>({
-      date: d.date,
-      generation: d.value ?? 0,
-    }));
+    // pobieraj równolegle; brak danych = 0
+    const results = await Promise.all(
+      dates.map(async (date) => {
+        try {
+          const res = await fetch(`${base}/api/foxess/summary/day-cached?date=${date}`, { cache: "no-store" });
+          const j = await res.json();
+          const kwh = Number(j?.today?.generation?.total ?? 0) || 0;
+          return { date, generation: +kwh.toFixed(3) };
+        } catch {
+          return { date, generation: 0 };
+        }
+      })
+    );
 
-    return NextResponse.json({ ok:true, days });
-  } catch (e:any) {
-    return NextResponse.json({ ok:false, error:e.message }, { status:500 });
+    const total = +results.reduce((acc, r) => acc + r.generation, 0).toFixed(2);
+
+    return NextResponse.json({
+      ok: true,
+      month,
+      days: results,                       // [{ date:"YYYY-MM-DD", generation: kWh }]
+      totals: { generation: total },       // suma miesiąca
+    });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 200 });
   }
 }
