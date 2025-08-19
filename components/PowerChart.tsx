@@ -1,30 +1,26 @@
 'use client';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-export type HourPoint = { t: string; kwh: number };
+function fmt(h:number){ return (h<10?'0':'')+h+':00'; }
 
-export default function PowerChart({ data, title }:{ data: HourPoint[]; title: string }){
+export default function PowerChart({ hourly }:{ hourly: number[] }){
+  const data = hourly.map((kwh, i)=>({ h: fmt(i), v: Number(kwh.toFixed(2)) }));
   return (
-    <div className="glass">
-      <div className="chart-wrap">
-        <div style={{fontWeight:700, marginBottom:8}}>{title}</div>
-        <div style={{width:'100%', height:300}}>
-          <ResponsiveContainer>
-            <AreaChart data={data}>
-              <defs>
-                <linearGradient id="pv" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#29a3ff" stopOpacity={0.9} />
-                  <stop offset="100%" stopColor="#29a3ff" stopOpacity={0.05} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="t" tick={{fill:'var(--muted)'}} />
-              <YAxis tick={{fill:'var(--muted)'}} />
-              <Tooltip contentStyle={{background:'rgba(0,0,0,0.7)', border:'none', borderRadius:10}} />
-              <Area type="monotone" dataKey="kwh" stroke="#29a3ff" strokeWidth={3} fill="url(#pv)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+    <div className="glass chartPanel" style={{height:320}}>
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data}>
+          <defs>
+            <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.8}/>
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity={0.1}/>
+            </linearGradient>
+          </defs>
+          <XAxis dataKey="h" tick={{fill:'var(--muted)'}}/>
+          <YAxis tick={{fill:'var(--muted)'}}/>
+          <Tooltip labelStyle={{color:'var(--text)'}} contentStyle={{background:'var(--panel)', border:'1px solid var(--border)'}}/>
+          <Area type="monotone" dataKey="v" stroke="var(--accent)" fill="url(#grad)" strokeWidth={3} />
+        </AreaChart>
+      </ResponsiveContainer>
     </div>
-  );
+  )
 }

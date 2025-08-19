@@ -1,5 +1,5 @@
 {
-  "name": "foxess-rce-app",
+  "name": "foxess-rce-dashboard",
   "version": "0.4.0",
   "private": true,
   "scripts": {
@@ -10,14 +10,14 @@
   },
   "dependencies": {
     "next": "14.2.5",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
     "recharts": "2.12.7",
-    "clsx": "2.1.1"
+    "swr": "2.2.5"
   },
   "devDependencies": {
     "typescript": "5.4.5",
-    "@types/react": "18.3.3",
+    "@types/react": "18.2.21",
     "@types/node": "20.11.19"
   }
 }

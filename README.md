@@ -1,31 +1,35 @@
-# FoxESS × RCE — minimalist app
+# FoxESS × RCE Dashboard (glass UI)
 
-This bundle contains just the **UI**, the **RCEm table** and the **/api/range/compute** endpoint.
+**Co to jest?**  
+Gotowy projekt Next.js z:
+- Glass UI + dark/light theme (ciemny domyślnie)
+- Wykres godzinowej generacji (nie skumulowany)
+- Tabela godzinowa (kWh, RCE, przychód)
+- Kalkulator sumy dla zakresu dat (RCE/RCEm, z fallbackiem)
+- Serwerowe adaptery:
+  - `/api/foxess/realtime` i `/api/foxess/day` – proxy do FoxESS
+  - `/api/rce/day` – opcjonalny provider godzinowego RCE (jeśli masz źródło)
+  - `/api/rcem/monthly` – RCEm z `public/rcem.json`
+  - `/api/range/compute` – liczenie sum
 
-It **expects you already have** working endpoints:
+## ENV (Vercel)
 
-- `/api/foxess/realtime` → `{ pvNowW: number }` (or compatible)
-- `/api/foxess/day?date=YYYY-MM-DD` → payload with daily generation; the app auto-normalizes shapes.
-- `/api/rce/day?date=YYYY-MM-DD` → hourly RCE prices; optional. If missing, the app will fall back to **RCEm** for revenue.
+Uzupełnij w **Project Settings → Environment Variables**:
+- `FOXESS_TOKEN` – token API z FoxESS Cloud
+- `FOXESS_DEVICE_SN` – numer seryjny inwertera
+- (opcjonalnie) `FOXESS_DOMAIN` – domyślnie `https://www.foxesscloud.com`
+- (opcjonalnie) `RCE_PROVIDER_URL` – jeśli masz własny endpoint godzinowych cen RCE
+- (opcjonalnie) `NEXT_PUBLIC_BASE_URL` – np. origin Twojej aplikacji (dla /api w compute)
 
-### What you get
+> Endpointy FoxESS podpisujemy automatycznie (MD5) i próbujemy 3 warianty separatora
+> oraz dwa ścieżki API (`/op/v1/...` i `/c/v0/...`).
 
-- Glass-morphism tiles (Moc teraz, Wygenerowano, Przychód)
-- Smooth area chart of **hourly generation** (not cumulative)
-- Hourly table (generation, price, revenue)
-- Range calculator that sums kWh and revenue for a date range (RCE or RCEm)
-- Theme toggle (dark default, light optional)
-- RCEm monthly prices baked in `/public/rcem.json`
-
-### Rate limiting to FoxESS
-
-The UI throttles realtime polling to **1 request / 60s** (client side). Your existing `/api/foxess/realtime` can add server-side caching if needed.
-
-### Install
-
+## Uruchomienie lokalnie
 ```
 npm i
 npm run dev
 ```
 
-Adjust or keep your existing API endpoints; this UI will call them.
+## Uwagi
+- Jeśli FoxESS zwraca serię skumulowaną 24 wartości, UI robi różnicę (diff) i wyświetla kWh/h.
+- Jeśli `/api/rce/day` nie zwróci cen, UI liczy przychód wg `RCEm` z `public/rcem.json`.

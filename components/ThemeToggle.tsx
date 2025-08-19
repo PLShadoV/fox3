@@ -1,25 +1,19 @@
 'use client';
 import { useEffect, useState } from 'react';
 
-export default function ThemeToggle() {
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-
-  useEffect(() => {
-    const stored = (localStorage.getItem('pv-theme') as 'dark'|'light'|null) || 'dark';
-    setTheme(stored);
-    document.documentElement.setAttribute('data-theme', stored === 'dark' ? 'dark' : 'light');
-  }, []);
-
-  function toggle() {
+export default function ThemeToggle(){
+  const [theme, setTheme] = useState<'dark'|'light'>('dark');
+  useEffect(()=>{
+    const saved = (typeof window!=='undefined' && window.localStorage.getItem('theme')) as 'dark'|'light'|null;
+    if(saved){ setTheme(saved); document.documentElement.setAttribute('data-theme', saved); }
+  },[]);
+  function toggle(){
     const next = theme === 'dark' ? 'light' : 'dark';
     setTheme(next);
-    localStorage.setItem('pv-theme', next);
-    document.documentElement.setAttribute('data-theme', next === 'dark' ? 'dark' : 'light');
+    if(typeof window!=='undefined'){
+      window.localStorage.setItem('theme', next);
+      document.documentElement.setAttribute('data-theme', next);
+    }
   }
-
-  return (
-    <button className="chip" onClick={toggle} aria-label="Przełącz motyw">
-      {theme === 'dark' ? 'Jasny' : 'Ciemny'}
-    </button>
-  );
+  return <button onClick={toggle} className={'toggle '+(theme==='light'?'active':'')}>{theme==='dark'?'Ciemny':'Jasny'}</button>
 }

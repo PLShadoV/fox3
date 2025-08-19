@@ -1,11 +1,10 @@
-type Props = { title: string; value: string; subtitle?: string };
-
-export default function StatTile({ title, value, subtitle }: Props) {
+'use client';
+export default function StatTile({ title, value, subtitle }: {title:string; value:string; subtitle?:string}){
   return (
-    <div className="glass tile">
-      <h3>{title}</h3>
+    <div className="glass stat">
+      <div className="sub">{title}</div>
       <div className="value">{value}</div>
-      {subtitle && <div className="sub">{subtitle}</div>}
+      {!!subtitle && <div className="hint">{subtitle}</div>}
     </div>
-  );
+  )
 }

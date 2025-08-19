@@ -1,48 +1,47 @@
 'use client';
-import { useState } from 'react';
+import { useState } from "react";
 
 export default function RangeCalculator(){
   const today = new Date().toISOString().slice(0,10);
-  const [from, setFrom] = useState(today.slice(0,8)+'01');
+  const monthStart = today.slice(0,8) + '01';
+  const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(today);
   const [mode, setMode] = useState<'rce'|'rcem'>('rce');
   const [loading, setLoading] = useState(false);
-  const [res, setRes] = useState<{kwh:number,revenue:number}|null>(null);
-  const [err, setErr] = useState<string|null>(null);
+  const [result, setResult] = useState<{kwh:number, revenue_pln:number}|null>(null);
+  const [error, setError] = useState<string| null>(null);
 
-  async function compute(){
-    setLoading(true); setErr(null);
+  async function calc(){
+    setLoading(true); setError(null);
     try{
       const q = new URLSearchParams({from, to, mode}).toString();
-      const r = await fetch(`/api/range/compute?${q}`);
-      const j = await r.json();
-      if(!r.ok || j.ok===false) throw new Error(j.error || 'Błąd');
-      setRes({kwh:j.sumKWh, revenue:j.sumRevenue});
-    }catch(e:any){ setErr(e.message); } finally{ setLoading(false); }
+      const res = await fetch('/api/range/compute?'+q, { cache:'no-store' });
+      const j = await res.json();
+      if(!res.ok || !j.ok){ throw new Error(j.error || 'Błąd'); }
+      setResult({kwh: j.totals.kwh, revenue_pln: j.totals.revenue_pln});
+    }catch(e:any){
+      setError(e.message);
+    }finally{ setLoading(false); }
   }
 
   return (
-    <div className="glass" style={{padding:16}}>
-      <div style={{fontWeight:700, marginBottom:10}}>Kalkulator zakresu (suma GENERATION i przychodu)</div>
-      <div className="hstack" style={{gap:12}}>
+    <div className="glass">
+      <div className="title" style={{marginBottom:8}}>Kalkulator zakresu</div>
+      <div className="controls">
         <div>Od</div>
-        <input type="date" value={from} onChange={e=>setFrom(e.target.value)} className="chip" />
+        <input type="date" value={from} onChange={e=>setFrom(e.target.value)} />
         <div>Do</div>
-        <input type="date" value={to} onChange={e=>setTo(e.target.value)} className="chip" />
+        <input type="date" value={to} onChange={e=>setTo(e.target.value)} />
         <div>Tryb</div>
-        <div className="hstack">
-          <button className={"chip "+(mode==='rce'?'active':'')} onClick={()=>setMode('rce')}>RCE</button>
-          <button className={"chip "+(mode==='rcem'?'active':'')} onClick={()=>setMode('rcem')}>RCEm</button>
-        </div>
-        <div className="spacer" />
-        <button className="btn" onClick={compute} disabled={loading}>{loading?'Liczenie…':'Oblicz'}</button>
+        <div className={"toggle "+(mode==='rce'?'active':'')} onClick={()=>setMode('rce')}>RCE</div>
+        <div className={"toggle "+(mode==='rcem'?'active':'')} onClick={()=>setMode('rcem')}>RCEm</div>
+        <div className="right" />
+        <button className="btn" onClick={calc} disabled={loading}>{loading?'Liczenie...':'Oblicz'}</button>
       </div>
-      {err && <div className="error" style={{marginTop:12}}>{err}</div>}
-      {res && (
-        <div style={{marginTop:12}}>
-          Suma <b>GENERATION</b>: <b>{res.kwh.toFixed(2)} kWh</b>, Suma przychodu: <b>{res.revenue.toFixed(2)} PLN</b>
-        </div>
-      )}
+      <div className="spacer"></div>
+      {error && <div className="err">{error}</div>}
+      {result && <div className="ok">Suma GENERATION: {result.kwh.toFixed(2)} kWh, Suma przychodu: {result.revenue_pln.toFixed(2)} PLN</div>}
+      {!result && !error && <div className="notice">Podaj zakres i kliknij „Oblicz”. Jeśli brak danych RCE godzinowych, kalkulator automatycznie użyje RCEm.</div>}
     </div>
-  );
+  )
 }

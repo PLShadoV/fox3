@@ -1,5 +1,6 @@
-import map from '@/public/rcem.json';
+import { NextResponse } from "next/server";
+import data from "@/public/rcem.json";
 
-export async function GET() {
-  return new Response(JSON.stringify({ ok: true, map }), { headers: { 'content-type': 'application/json' } });
+export async function GET(){
+  return NextResponse.json({ ok:true, months: data }, { status:200 });
 }
