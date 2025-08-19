@@ -1,11 +1,33 @@
 'use client';
-type Props = { title: string; value: string; subtitle?: string };
-export default function StatTile({ title, value, subtitle }: Props){
+import React from 'react';
+
+type StatTileProps = {
+  /** Preferred prop names */
+  title?: string;
+  subtitle?: string;
+
+  /** Backwards-compatible aliases */
+  label?: string;
+  sub?: string;
+
+  /** Displayed main value (already formatted) */
+  value: string;
+  className?: string;
+};
+
+/**
+ * Glass-style stat tile. Accepts both (title/subtitle) and legacy (label/sub) props.
+ */
+export default function StatTile(props: StatTileProps) {
+  const heading = (props.title ?? props.label ?? '').trim();
+  const subline = (props.subtitle ?? props.sub)?.trim();
+  const cls = `pv-card pv-card--glass pv-stat ${props.className ?? ''}`.trim();
+
   return (
-    <div className="glass tile">
-      <div className="title">{title}</div>
-      <div className="value">{value}</div>
-      {subtitle && <div className="sub">{subtitle}</div>}
+    <div className={cls}>
+      {heading && <div className="pv-stat-title">{heading}</div>}
+      <div className="pv-stat-value">{props.value}</div>
+      {subline && <div className="pv-stat-sub">{subline}</div>}
     </div>
   );
 }

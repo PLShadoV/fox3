@@ -1,117 +1,217 @@
 import crypto from "crypto";
 
-const FOX_DOMAIN = process.env.FOXESS_DOMAIN || "https://www.foxesscloud.com";
+const FOX_DOMAIN = "https://www.foxesscloud.com";
 
 type SepKind = "literal" | "crlf" | "lf";
+export type FoxReportDim = "day" | "month" | "year";
 
-function buildSignature(path: string, token: string, timestamp: number, kind: SepKind){
-  const sep = kind === "literal" ? "\r\n" : (kind === "crlf" ? "
-" : "
-");
-  const plaintext = path + sep + token + sep + String(timestamp);
-  return crypto.createHash("md5").update(plaintext).digest("hex");
+function buildSignature(path: string, token: string, ts: number, kind: SepKind){
+  const SEPS: Record<SepKind, string> = {
+    literal: "\\r\\n",
+    crlf: "\r\n",
+    lf: "\n",
+  };
+  const sep = SEPS[kind];
+  const plain = path + sep + token + sep + String(ts);
+  return crypto.createHash("md5").update(plain).digest("hex");
 }
 
-async function foxFetch(path: string, body:any){
-  const token = process.env.FOXESS_TOKEN || "";
-  if(!token) throw new Error("FOXESS_TOKEN is required");
-  const timestamp = Math.floor(Date.now() / 1000);
-  const url = `${FOX_DOMAIN}${path}`;
-  const kinds: SepKind[] = ["literal","crlf","lf"];
-  let lastErr:any=null;
-  for(const k of kinds){
-    try{
-      const sign = buildSignature(path, token, timestamp, k);
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          "lang": "pl",
-          "token": token,
-          "t": String(timestamp),
-          "sign": sign
-        },
-        body: JSON.stringify(body)
-      });
-      const j = await res.json().catch(()=>({}));
-      if(j?.errno === 0 || j?.code === 0) return j;
-      if(j?.errno === 40256 && k !== "lf") continue; // illegal signature -> try next
-      lastErr = j;
-    }catch(e:any){ lastErr = e; }
+async function callFox(path: string, headers: Record<string,string>, body: any){
+  const res = await fetch("https://www.foxesscloud.com"+path, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    cache: "no-store"
+  });
+  const text = await res.text();
+  let json: any = null;
+  try { json = JSON.parse(text); } catch {}
+  return { res, text, json };
+}
+
+function normalizeValues(values: any, unit?: string){
+  const arr = Array.isArray(values) ? values.map((x:any)=> Number(x)||0) : [];
+  const maxv = arr.length ? Math.max(...arr) : 0;
+  let out = arr.slice();
+  let u = String(unit || "kWh");
+  if (u.toLowerCase() === "kwh" && maxv > 20000){
+    out = out.map((v)=> v/1000);
+    u = "kWh";
   }
-  throw new Error(`FoxESS error: ${typeof lastErr==='object'?JSON.stringify(lastErr):String(lastErr)}`);
-}
-
-export async function foxRealtime(){
-  const sn = process.env.FOXESS_DEVICE_SN || "";
-  if(!sn) throw new Error("FOXESS_DEVICE_SN is required");
-  // try op path first then c path
-  const paths = ["/op/v1/device/real/query", "/c/v0/device/real/query"];
-  const payload = { deviceCategory:"inverter", sn, variables:["pvPower","pv1Power","pv2Power","generationPower","feedinPower","acPower"] };
-  for(const p of paths){
-    try{ return await foxFetch(p, payload); }catch(e){/* try next */}
+  const fit24 = new Array(24).fill(0);
+  for (let i=0;i<Math.min(24,out.length);i++){
+    fit24[i] = +Number(out[i]).toFixed(3);
   }
-  throw new Error("FoxESS realtime failed for all paths");
+  return { unit: u, values: fit24 };
 }
 
-export async function foxHistoryDay(date: string){
-  const sn = process.env.FOXESS_DEVICE_SN || "";
-  if(!sn) throw new Error("FOXESS_DEVICE_SN is required");
-  const paths = ["/op/v1/device/history/query", "/c/v0/device/history/query"];
-  const candidates = [
-    { dimension:"day", variables:["generation","feedin"] },
-    { dimension:"DAY", variables:["generation","feedin"] },
-  ];
-  for(const p of paths){
-    for(const v of candidates){
-      try{
-        const res = await foxFetch(p, { sn, ...v, queryDate: date });
-        return res;
-      }catch(e){ /* try next */ }
-    }
-  }
-  throw new Error("FoxESS history failed for all variants");
-}
+function parseReportResult(raw:any){
+  const out: Array<{ variable: string; unit: string; values: number[] }> = [];
+  const push = (label:any, unit:any, values:any)=>{
+    const vname = String(label||"").trim() || String(unit||"").trim() || "unknown";
+    const norm = normalizeValues(values, unit);
+    out.push({ variable: vname, unit: norm.unit, values: norm.values });
+  };
 
-// Helpers to normalize FoxESS responses into common shape
-export function parseRealtime(raw:any){
-  // Expect raw.datas array with variables
-  const block = Array.isArray(raw?.result) ? raw.result[0] : raw?.result || raw?.data || raw;
-  const datas = block?.datas || raw?.datas || [];
-  let pv = null;
-  const tryVars = ["pvPower","pv1Power","pv2Power","generationPower","acPower"];
-  if(Array.isArray(datas)){
-    for(const v of tryVars){
-      const item = datas.find((d:any)=> (d.variable||'').toLowerCase() === v.toLowerCase());
-      if(item && typeof item.value !== 'undefined'){
-        const unit = (item.unit||'').toLowerCase();
-        const n = Number(item.value);
-        pv = unit==='kw' ? Math.round(n*1000) : Math.round(n);
-        break;
+  if (Array.isArray(raw)){
+    if (raw.length && (Array.isArray(raw[0]?.values) || raw[0]?.values == null)){
+      for (const r of raw) push((r as any).variable ?? (r as any).name, (r as any).unit, (r as any).values);
+    } else if (raw.length && Array.isArray((raw[0] as any)?.datas)){
+      for (const blk of raw as any[]) for (const ds of (blk?.datas || [])){
+        const vals = ds?.values ?? ds?.data ?? ds?.points;
+        push(ds.variable ?? ds.name, ds.unit, vals);
       }
-    }
-  }
-  return { pvNowW: pv, raw };
-}
-
-export function parseHistoryDay(raw:any){
-  // Find 'generation' and 'feedin' arrays of length 24 with unit kWh
-  const result = raw?.result || raw?.data || raw;
-  let gen:any=null, exp:any=null;
-  const datas = Array.isArray(result) ? result : result?.datas || result?.data || result;
-  function pick(varName:string){
-    if(Array.isArray(datas)){
-      for(const d of datas){
-        const v = (d.variable||d.name||'').toLowerCase();
-        if(v.includes(varName)){
-          return { variable: varName, unit: (d.unit||'kWh'), values: Array.isArray(d.values)?d.values.map((x:any)=>Number(x)||0):[] };
+    } else {
+      for (const r of raw as any[]){
+        const keys = Object.keys(r||{});
+        for (const k of keys){
+          if (k === "unit" || k === "variable" || k === "name") continue;
+          const vals = (r as any)[k];
+          if (Array.isArray(vals)) push(k, (r as any).unit, vals);
         }
       }
     }
-    return null;
+  } else if (raw && typeof raw === "object"){
+    for (const [k,v] of Object.entries(raw)){
+      if (Array.isArray(v)) push(k, (raw as any).unit, v);
+    }
   }
-  gen = pick("generation") || pick("eday") || pick("dayenergy") || pick("yield") || pick("production");
-  exp = pick("feedin") || pick("gridexport") || pick("export");
-  return { generation: gen, export: exp };
+  return out;
+}
+
+/** Realtime (pvPower / generationPower -> W) */
+export async function foxRealtimeQuery({ sn, variables }:{ sn:string; variables: string[] }){
+  const token = process.env.FOXESS_API_KEY || "";
+  if (!token) throw new Error("Brak FOXESS_API_KEY");
+  const PATH = "/op/v0/device/real/query";
+  const ts = Date.now();
+  const kinds: SepKind[] = ["crlf","literal","lf"];
+
+  const pickDatas = (result:any): any[] => {
+    if (!result) return [];
+    if (Array.isArray(result?.datas)) return result.datas;
+    if (Array.isArray(result) && result.length && Array.isArray(result[0]?.datas)) return result[0].datas;
+    if (Array.isArray(result?.result?.datas)) return result.result.datas;
+    if (Array.isArray(result?.inverter?.datas)) return result.inverter.datas;
+    return [];
+  };
+
+  for (const kind of kinds){
+    const headers: Record<string,string> = {
+      "Content-Type": "application/json",
+      "token": token,
+      "timestamp": String(ts),
+      "signature": buildSignature(PATH, token, ts, kind),
+      "lang": process.env.FOXESS_API_LANG || "pl"
+    };
+    const { json } = await callFox(PATH, headers, { sn, variables });
+    if (json && json.errno === 0){
+      const datas = pickDatas(json.result);
+      const pref = ["pvPower","pv1Power","pv2Power","pvPowerW","generationPower","inverterPower","outputPower","ppv","ppvTotal","gridExportPower","feedinPower","acPower"];
+      for (const p of pref){
+        const ds = datas.find((d:any)=> String(d?.variable||"").toLowerCase()===p.toLowerCase() || String(d?.name||"").toLowerCase()===p.toLowerCase());
+        if (ds && typeof ds.value === "number"){
+          const unit = String(ds.unit||"").toLowerCase();
+          const w = unit.includes("kw") ? Math.round(Number(ds.value)*1000) : Math.round(Number(ds.value));
+          return { ok:true, matched: ds.variable || ds.name || p, pvNowW: w, raw: [json.result] };
+        }
+      }
+      return { ok:true, matched: null, pvNowW: null, raw: [json.result] };
+    }
+  }
+  return { ok:false, error:"FoxESS realtime failed" };
+}
+
+/** Raport dzienny (bezpośrednio do 'day') */
+export async function foxReportQueryDay({ sn, year, month, day, variables = ["generation","feedin"], lang = "pl" }:{
+  sn:string; year:number; month:number; day:number; variables?: string[]; lang?: string;
+}){
+  return await foxReportQuery({ sn, year, month, day, dimension: "day", variables, lang });
+}
+
+/** Raport generyczny (day/month/year) — eksponowany jako 'foxReportQuery' żeby nie ruszać reszty kodu */
+export async function foxReportQuery({
+  sn, year, month, day, dimension, variables = ["generation","feedin"], lang = "pl"
+}:{
+  sn:string; year:number; month?:number; day?:number; dimension: FoxReportDim; variables?: string[]; lang?: string;
+}){
+  const token = process.env.FOXESS_API_KEY || "";
+  if (!token) throw new Error("Brak FOXESS_API_KEY");
+  const PATH = "/op/v0/device/report/query";
+  const ts = Date.now();
+  const kinds: SepKind[] = ["crlf", "literal", "lf"];
+  const keys: Array<"dimension"|"type"> = ["dimension","type"];
+  let lastErr = "";
+
+  for (const key of keys){
+    for (const kind of kinds){
+      const headers: Record<string,string> = {
+        "Content-Type": "application/json",
+        "token": token,
+        "timestamp": String(ts),
+        "signature": buildSignature(PATH, token, ts, kind),
+        "lang": lang
+      };
+      const body:any = { sn, year, variables };
+      if (typeof month === "number") body.month = month;
+      if (typeof day === "number") body.day = day;
+      (body as any)[key] = dimension;
+
+      const { res, json, text } = await callFox(PATH, headers, body);
+      if (!json || typeof json.errno !== "number"){
+        lastErr = `HTTP ${res?.status}: ${text}`;
+        continue;
+      }
+      if (json.errno !== 0){
+        lastErr = `${json.errno}: ${json.msg || "error"}`;
+        continue;
+      }
+      return parseReportResult(json.result);
+    }
+  }
+  throw new Error("FoxESS report failed: " + lastErr);
+}
+
+/** Lista urządzeń (na potrzeby debug route) */
+export async function foxDevices(){
+  const token = process.env.FOXESS_API_KEY || "";
+  if (!token) throw new Error("Brak FOXESS_API_KEY");
+  const PATH = "/op/v0/device/list";
+  const ts = Date.now();
+  const kinds: SepKind[] = ["crlf","literal","lf"];
+  for (const kind of kinds){
+    const headers: Record<string,string> = {
+      "Content-Type": "application/json",
+      "token": token,
+      "timestamp": String(ts),
+      "signature": buildSignature(PATH, token, ts, kind),
+      "lang": process.env.FOXESS_API_LANG || "pl"
+    };
+    const { json, text, res } = await callFox(PATH, headers, { currentPage: 1, pageSize: 50 });
+    if (json && json.errno === 0) return { ok:true, ...json.result };
+    if (!res?.ok) return { ok:false, error: text };
+  }
+  return { ok:false, error:"device list error" };
+}
+
+/** Ping/diagnostyka podpisu */
+export async function foxPing(){
+  const token = process.env.FOXESS_API_KEY || "";
+  if (!token) throw new Error("Brak FOXESS_API_KEY");
+  const PATH = "/op/v0/device/list";
+  const ts = Date.now();
+  const kinds: SepKind[] = ["crlf","literal","lf"];
+  const results:any = {};
+  for (const kind of kinds){
+    const headers: Record<string,string> = {
+      "Content-Type": "application/json",
+      "token": token,
+      "timestamp": String(ts),
+      "signature": buildSignature(PATH, token, ts, kind),
+      "lang": "pl"
+    };
+    const { res, text } = await callFox(PATH, headers, { currentPage:1, pageSize:1 });
+    results[kind] = { status: res.status, text };
+  }
+  return results;
 }

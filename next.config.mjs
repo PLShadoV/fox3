@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {},
-  reactStrictMode: false,
-}
+  reactStrictMode: true,
+  experimental: { optimizePackageImports: ["recharts"] }
+};
 export default nextConfig;
