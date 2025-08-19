@@ -1,25 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
+import { ok, bad } from "../../../../lib/utils";
 
-/**
- * This endpoint is optional. If RCE provider is not configured,
- * it returns {ok:true, rows:[]} so UI falls back to RCEm.
- *
- * You can set RCE_PROVIDER_URL in env to a custom JSON service returning:
- *  { date: 'YYYY-MM-DD', rows: [{ hour:0, rce_pln_mwh:number }, ... 24 rows ] }
- */
-export async function GET(req: NextRequest){
-  const url = new URL(req.url);
-  const date = url.searchParams.get('date') || new Date().toISOString().slice(0,10);
-  const provider = process.env.RCE_PROVIDER_URL || "";
-  if(!provider){
-    return NextResponse.json({ ok:true, date, rows: [] }, { status:200 });
-  }
-  try{
-    const res = await fetch(`${provider}?date=${date}`, { next: { revalidate: 300 }});
-    const j = await res.json();
-    const rows = Array.isArray(j?.rows) ? j.rows : [];
-    return NextResponse.json({ ok:true, date, rows }, { status:200 });
-  }catch(e:any){
-    return NextResponse.json({ ok:false, error:e.message }, { status:200 });
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const date = searchParams.get("date") || new Date().toISOString().slice(0,10);
+  const provider = process.env.RCE_PROVIDER_URL;
+  try {
+    if (provider) {
+      const r = await fetch(`${provider}?date=${date}`, { cache: "no-store" });
+      if (!r.ok) throw new Error(`Provider ${r.status}`);
+      const data = await r.json();
+      return ok({ date, rows: data.rows || [] });
+    }
+    // fallback: zeros for 24h
+    const rows = Array.from({length:24}, (_,h)=>({ hour:h, rce_pln_mwh: 0 }));
+    return ok({ date, rows });
+  } catch (e:any) {
+    return bad(e.message);
   }
 }

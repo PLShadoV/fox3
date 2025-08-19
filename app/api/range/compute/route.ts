@@ -1,59 +1,62 @@
-import { NextRequest, NextResponse } from "next/server";
-import { eachDay } from "@/lib/utils";
-import rcem from "@/public/rcem.json";
+import { ok, bad } from "../../../../lib/utils";
 
-async function dayGen(date:string){
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ''}/api/foxess/day?date=${date}`, { cache: 'no-store' });
-  const j = await res.json();
-  if(!j?.ok) throw new Error(j?.error || 'FoxESS day failed');
-  const series = j?.today?.generation?.series || [];
-  const sum = series.reduce((a:number,b:number)=>a+(Number(b)||0),0);
-  return { kwh: sum, hourly: series };
+function monthKey(d: Date) {
+  return d.toISOString().slice(0,7);
+}
+function addDays(d: Date, days: number) {
+  const x = new Date(d);
+  x.setUTCDate(x.getUTCDate()+days);
+  return x;
 }
 
-async function dayRCE(date:string){
-  try{
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ''}/api/rce/day?date=${date}`, { next:{ revalidate: 300 }});
-    const j = await res.json();
-    return Array.isArray(j?.rows)? j.rows : [];
-  }catch{ return []; }
-}
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
+    const mode = (searchParams.get("mode")||"rce").toLowerCase(); // "rce"|"rcem"
 
-export async function GET(req: NextRequest){
-  const u = new URL(req.url);
-  const from = u.searchParams.get('from') || '';
-  const to = u.searchParams.get('to') || '';
-  const mode = (u.searchParams.get('mode') || 'rce').toLowerCase();
-  if(!from || !to || from>to) return NextResponse.json({ ok:false, error:"Invalid 'from' or 'to' date" }, { status:200 });
+    if (!from || !to) return bad("Invalid 'from' or 'to' date");
 
-  let totalKwh=0, totalRevenue=0;
-  const days = eachDay(from, to);
-  for(const d of days){
-    const { kwh, hourly } = await dayGen(d);
-    totalKwh += kwh;
-    if(mode==='rcem'){
-      const key = d.slice(0,7);
-      const price = (rcem as any)[key];
-      if(price) totalRevenue += kwh * (Math.max(0, Number(price)||0)/1000);
-      continue;
-    }
-    // rce hourly
-    const rceRows = await dayRCE(d);
-    if(rceRows.length===24){
-      let rev=0;
-      for(let i=0;i<24;i++){
-        const price = Math.max(0, Number(rceRows[i]?.rce_pln_mwh)||0);
-        const k = Number(hourly[i]||0);
-        rev += k * (price/1000);
+    const start = new Date(from);
+    const end = new Date(to);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return bad("Invalid date range");
+    if (end < start) return bad("'to' before 'from'");
+
+    let sumKWh = 0;
+    let sumPLN = 0;
+    const byDay: any[] = [];
+
+    for (let d = new Date(start); d <= end; d = addDays(d,1)) {
+      const dayStr = d.toISOString().slice(0,10);
+      const genRes = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL||""}/api/foxess/day?date=${dayStr}`, { cache: "no-store" });
+      const gen = await genRes.json();
+      const kwh = (gen.generation || []).reduce((a:number,b:number)=>a+Number(b||0),0);
+      sumKWh += kwh;
+
+      let dayPLN = 0;
+      if (mode === "rce") {
+        const r = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL||""}/api/rce/day?date=${dayStr}`, { cache: "no-store" });
+        const rjson = await r.json();
+        const hours = rjson.rows || [];
+        for (let h=0; h<24; h++) {
+          const priceMWh = Math.max(0, Number(hours[h]?.rce_pln_mwh || 0));
+          const hkwh = Number(gen.generation?.[h] || 0);
+          dayPLN += hkwh * (priceMWh/1000);
+        }
+      } else {
+        const mkey = monthKey(d);
+        const rcemRes = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL||""}/api/rcem/monthly`, { cache: "force-cache" });
+        const rcem = await rcemRes.json();
+        const priceMWh = Number(rcem.rows?.[mkey] || 0);
+        dayPLN = kwh * (priceMWh/1000);
       }
-      totalRevenue += rev;
-    }else{
-      // fallback to RCEm if no hourly
-      const key = d.slice(0,7);
-      const price = (rcem as any)[key];
-      if(price) totalRevenue += kwh * (Math.max(0, Number(price)||0)/1000);
+      sumPLN += dayPLN;
+      byDay.push({ date: dayStr, kwh, revenue_pln: dayPLN });
     }
-  }
 
-  return NextResponse.json({ ok:true, from, to, mode, totals: { kwh: Number(totalKwh.toFixed(2)), revenue_pln: Number(totalRevenue.toFixed(2)) } }, { status:200 });
+    return ok({ from, to, mode, totals: { kwh: sumKWh, revenue_pln: sumPLN }, rows: byDay });
+  } catch (e:any) {
+    return bad(e.message);
+  }
 }

@@ -1,7 +1,7 @@
-export const metadata = { title: "FoxESS × RCE", description: "PV dashboard" };
-import "./globals.css";
+import './globals.css';
+import React from 'react';
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }:{ children: React.ReactNode }){
   return (
     <html lang="pl" data-theme="dark">
       <body>{children}</body>

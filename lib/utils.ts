@@ -1,9 +1,13 @@
-export function ymd(d: Date){ return d.toISOString().slice(0,10); }
-export function addDays(dateStr: string, days:number){
-  const d = new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()+days); return ymd(d);
+export function toISODate(dateStr?: string) {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  if (isNaN(d.getTime())) throw new Error("Invalid date");
+  return d.toISOString().slice(0,10);
 }
-export function eachDay(from:string, to:string){
-  const list:string[]=[]; let cur=from;
-  while(cur<=to){ list.push(cur); cur = addDays(cur,1); }
-  return list;
+
+export function ok(data: any) {
+  return Response.json({ ok: true, ...data }, { status: 200 });
+}
+
+export function bad(message: string) {
+  return Response.json({ ok: false, error: message }, { status: 200 });
 }

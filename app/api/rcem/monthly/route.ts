@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
-import data from "@/public/rcem.json";
+import { ok } from "../../../../lib/utils";
+import rcem from "../../../../public/rcem.json";
 
-export async function GET(){
-  return NextResponse.json({ ok:true, months: data }, { status:200 });
+export async function GET() {
+  return ok({ rows: rcem });
 }
