@@ -1,6 +1,5 @@
-// lib/rcem.ts
-// Tabela RCEm (PLN/MWh) dostarczona przez użytkownika.
-// Klucze w formacie 'YYYY-MM'.
+// Stała tabela RCEm (PLN/MWh) — podana przez użytkownika.
+// UWAGA: klucze w formacie YYYY-MM, wartości liczbowe.
 export const RCEM_TABLE: Record<string, number> = {
   "2025-07": 284.83,
   "2025-06": 136.30,
@@ -22,31 +21,26 @@ export const RCEM_TABLE: Record<string, number> = {
   "2023-11": 703.81
 };
 
-// Zwraca cenę RCEm (PLN/MWh) dla dowolnej daty (Date lub 'YYYY-MM-DD').
-// Jeśli brak w tabeli, zwraca null.
-export function rcemFor(dateLike: Date | string): number | null {
-  let yearMonth: string;
-  if (dateLike instanceof Date) {
-    yearMonth = dateLike.toISOString().slice(0, 7);
-  } else {
-    // 'YYYY-MM-DD' -> 'YYYY-MM'
-    if (!/^\d{4}-\d{2}(-\d{2})?$/.test(dateLike)) return null;
-    yearMonth = dateLike.slice(0, 7);
-  }
-  return RCEM_TABLE[yearMonth] ?? null;
+// Zwraca cenę RCEm (PLN/MWh) dla danej daty (YYYY-MM-DD) lub null jeśli brak.
+export function rcemFor(dateISO: string): number | null {
+  if (!dateISO || dateISO.length < 7) return null;
+  const ym = dateISO.slice(0, 7);
+  return RCEM_TABLE.hasOwnProperty(ym) ? RCEM_TABLE[ym] : null;
 }
 
-// Zwraca obiekt tabeli do łatwego użycia w UI.
+// Zwraca kopię całej tabeli (np. do pokazania w UI).
 export function rcemTable(): Record<string, number> {
-  return RCEM_TABLE;
+  return { ...RCEM_TABLE };
 }
 
-// Funkcja pomocnicza do liczenia przychodu na bazie RCEm.
-// generationKWh – ilość energii (kWh) w danym dniu
-// dateLike – data tego dnia
-// Zwraca przychód w PLN (kWh * PLN/MWh / 1000)
-export function revenueFromRCEm(generationKWh: number, dateLike: Date | string): number | null {
-  const priceMWh = rcemFor(dateLike);
-  if (priceMWh == null) return null;
-  return (generationKWh * priceMWh) / 1000;
+// Liczy przychód z RCEm dla podanej energii [kWh] i daty (na podstawie miesiąca).
+export function revenueFromRCEm(kWh: number, dateISO: string): number {
+  const price = rcemFor(dateISO);
+  if (price == null) return 0;
+  // PLN = kWh * (PLN/MWh) / 1000
+  const val = (Number(kWh) || 0) * (Number(price) || 0) / 1000;
+  // Zaokrąglij delikatnie do 2 miejsc, ale zwróć liczbę
+  return Math.round(val * 100) / 100;
 }
+
+export default RCEM_TABLE;

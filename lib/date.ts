@@ -1,30 +1,32 @@
-// lib/date.ts
-export function fmtHour(i: number): string {
-  const h = Math.max(0, Math.min(23, Math.floor(i)));
-  return `${String(h).padStart(2, "0")}:00`;
+export function fmtHour(h: number): string {
+  const n = Math.max(0, Math.min(23, Math.floor(Number.isFinite(h) ? h : 0)));
+  return `${n.toString().padStart(2, "0")}:00`;
 }
 
 export function toISODate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function parseISODate(s: string): Date {
-  // Accept 'YYYY-MM-DD'
-  const dt = new Date(`${s}T00:00:00Z`);
-  if (Number.isNaN(dt.getTime())) {
-    throw new Error("Invalid ISO date string");
+  // Accept YYYY-MM-DD only; fall back to today if invalid
+  if (!/\d{4}-\d{2}-\d{2}/.test(s)) return new Date();
+  const [y, m, d] = s.split("-").map((x) => parseInt(x, 10));
+  // Construct in local time to match UI expectations
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
+
+export function isTodayISO(iso: string): boolean {
+  try {
+    const d = parseISODate(iso);
+    return toISODate(d) === toISODate(new Date());
+  } catch {
+    return false;
   }
-  return dt;
 }
 
-export function isTodayISO(s: string): boolean {
-  const today = new Date();
-  const iso = today.toISOString().slice(0, 10);
-  return s === iso;
-}
-
-// Returns the current hour in local time (0..23)
 export function currentHourLocal(): number {
-  const now = new Date();
-  return now.getHours();
+  return new Date().getHours();
 }
