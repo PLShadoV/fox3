@@ -1,35 +1,15 @@
-# FoxESS × RCE Dashboard (glass UI)
+# FoxESS × RCE Dashboard (minimal)
 
-**Co to jest?**  
-Gotowy projekt Next.js z:
-- Glass UI + dark/light theme (ciemny domyślnie)
-- Wykres godzinowej generacji (nie skumulowany)
-- Tabela godzinowa (kWh, RCE, przychód)
-- Kalkulator sumy dla zakresu dat (RCE/RCEm, z fallbackiem)
-- Serwerowe adaptery:
-  - `/api/foxess/realtime` i `/api/foxess/day` – proxy do FoxESS
-  - `/api/rce/day` – opcjonalny provider godzinowego RCE (jeśli masz źródło)
-  - `/api/rcem/monthly` – RCEm z `public/rcem.json`
-  - `/api/range/compute` – liczenie sum
+## Szybki start
+1) `npm i`
+2) `npm run dev`
 
-## ENV (Vercel)
+## Env (opcjonalnie)
+- `FOXESS_DAY_PROXY` – jeśli masz już działające endpointy FoxESS (np. ze starego projektu), podaj URL do `/api/foxess/day` aby przekierować zapytania.
+- `FOXESS_REALTIME_PROXY` – analogicznie dla realtime.
 
-Uzupełnij w **Project Settings → Environment Variables**:
-- `FOXESS_TOKEN` – token API z FoxESS Cloud
-- `FOXESS_DEVICE_SN` – numer seryjny inwertera
-- (opcjonalnie) `FOXESS_DOMAIN` – domyślnie `https://www.foxesscloud.com`
-- (opcjonalnie) `RCE_PROVIDER_URL` – jeśli masz własny endpoint godzinowych cen RCE
-- (opcjonalnie) `NEXT_PUBLIC_BASE_URL` – np. origin Twojej aplikacji (dla /api w compute)
+Bez tych zmiennych aplikacja użyje danych przykładowych – UI będzie działać, ale wyniki będą demonstracyjne.
 
-> Endpointy FoxESS podpisujemy automatycznie (MD5) i próbujemy 3 warianty separatora
-> oraz dwa ścieżki API (`/op/v1/...` i `/c/v0/...`).
-
-## Uruchomienie lokalnie
-```
-npm i
-npm run dev
-```
-
-## Uwagi
-- Jeśli FoxESS zwraca serię skumulowaną 24 wartości, UI robi różnicę (diff) i wyświetla kWh/h.
-- Jeśli `/api/rce/day` nie zwróci cen, UI liczy przychód wg `RCEm` z `public/rcem.json`.
+## Uwaga
+- RCEm używa wbudowanej tabeli miesięcznych cen.
+- RCE godzinowe domyślnie zwracane jako zera (endpoint `/api/rce/day`) – jeśli posiadasz swój scraper/API, podmień implementację.

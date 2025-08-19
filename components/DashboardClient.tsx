@@ -2,10 +2,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import StatTile from './StatTile';
 import PowerChart, { HourPoint } from './PowerChart';
-import { fmtHour } from '@/lib/date';
-import HourlyTable from './HourlyTable';
+import HourlyTable, { Row } from './HourlyTable';
 import RangeCalculator from './RangeCalculator';
 import ThemeToggle from './ThemeToggle';
+import { fmtHour } from '@/lib/date';
 import { rcemFor, rcemTable } from '@/lib/rcem';
 
 type RCEHour = { timeISO: string; rce_pln_mwh: number };
@@ -24,7 +24,7 @@ function normalizeHourly(gen: any): number[] {
 
 export default function DashboardClient(){
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0,10));
-  const [mode, setMode] = useState<'rce'|'rcem'>('rce');
+  const [mode, setMode] = useState<'rce'|'rcem'>('rcem');
   const [pvNow, setPvNow] = useState<number|null>(null);
   const [genSeries, setGenSeries] = useState<number[]>(new Array(24).fill(0));
   const [rce, setRce] = useState<RCEHour[]|null>(null);
@@ -32,7 +32,6 @@ export default function DashboardClient(){
   const [loading, setLoading] = useState(false);
   const lastRealtimeFetch = useRef<number>(0);
 
-  // realtime every 60s, even when viewing other date
   useEffect(()=>{
     let stop = false;
     async function tick(){
@@ -82,14 +81,14 @@ export default function DashboardClient(){
   useEffect(()=>{ loadDay(date); }, [date]);
 
   const chartData: HourPoint[] = useMemo(
-    () => genSeries.map((k, i) => ({ hour:i, t: fmtHour(i), kwh: k })),
+    () => genSeries.map((k, i) => ({ hour: i, t: fmtHour(i), kwh: k })),
     [genSeries]
   );
 
-  const rows = useMemo(()=> {
-    const price = mode==='rcem' ? (rcemFor(date) || 0) : 0;
+  const tableRows: Row[] = useMemo(()=> {
+    const priceMonth = mode==='rcem' ? (rcemFor(date) || 0) : 0;
     return genSeries.map((kwh, i)=>{
-      const p = mode==='rce' ? (rce?.[i]?.rce_pln_mwh ?? null) : price;
+      const p = mode==='rce' ? (rce?.[i]?.rce_pln_mwh ?? null) : priceMonth;
       const used = (p==null ? null : Math.max(0, p));
       const revenue = used==null ? null : (kwh * used / 1000);
       return { hour: fmtHour(i), kwh, price: used, revenue };
@@ -97,7 +96,7 @@ export default function DashboardClient(){
   }, [genSeries, rce, mode, date]);
 
   const totalKWh = genSeries.reduce((a,b)=>a+b,0);
-  const totalRevenue = rows.reduce((a,b)=> a + (b.revenue||0), 0);
+  const totalRevenue = tableRows.reduce((a,b)=> a + (b.revenue||0), 0);
 
   return (
     <>
@@ -128,12 +127,16 @@ export default function DashboardClient(){
         {mode==='rce' && !rce && <div className="notice">Brak danych RCE dla tego dnia — przełącz na RCEm.</div>}
       </div>
 
-      <PowerChart data={chartData} title={`Generacja [kWh] — ${date}`} />
+      <PowerChart data={chartData} title={`Produkcja — ${date}`} />
 
       <div style={{height:12}} />
-      <HourlyTable rows={rows} date={date} priceLabel={mode==='rce'?'Cena RCE (PLN/MWh)':'Cena RCEm (PLN/MWh)'} />
+
+      <HourlyTable rows={tableRows} />
+
       <div style={{height:12}} />
+
       <RangeCalculator />
+
       <div style={{height:12}} />
 
       <div className="glass" style={{padding:16}}>

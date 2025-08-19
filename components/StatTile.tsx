@@ -1,5 +1,4 @@
 'use client';
-
 type Props = { title: string; value: string; subtitle?: string };
 export default function StatTile({ title, value, subtitle }: Props){
   return (

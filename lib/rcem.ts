@@ -19,11 +19,13 @@ const TABLE: Record<string, number> = {
   "2023-11": 703.81
 };
 
-export function rcemFor(dateISO:string): number | null {
-  const ym = dateISO.slice(0,7);
-  return (TABLE as any)[ym] ?? null;
+export function rcemFor(dateISO: string): number | null {
+  // dateISO: "YYYY-MM-DD"
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) return null;
+  const month = dateISO.slice(0,7);
+  return TABLE[month] ?? null;
 }
 
-export function rcemTable(): {month:string; price:number}[] {
-  return Object.keys(TABLE).sort().map(k=>({ month:k, price:TABLE[k] }));
+export function rcemTable() {
+  return Object.entries(TABLE).sort((a,b)=>a[0]<b[0]?1:-1).map(([month, price]) => ({ month, price }));
 }
