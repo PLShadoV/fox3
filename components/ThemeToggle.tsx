@@ -1,14 +1,17 @@
 'use client';
-import React from 'react';
 
 export default function ThemeToggle(){
-  const [dark, setDark] = React.useState(true);
-  React.useEffect(()=>{
-    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  },[dark]);
   return (
-    <button className="chip" onClick={()=>setDark(d=>!d)}>
-      {dark ? '🌙 Ciemny' : '☀️ Jasny'}
+    <button
+      className="chip"
+      onClick={() => {
+        const el = document.documentElement;
+        const dark = el.classList.toggle('dark');
+        try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch {}
+      }}
+      aria-label="Przełącz motyw"
+    >
+      🌓 Motyw
     </button>
   );
 }

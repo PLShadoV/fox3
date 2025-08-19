@@ -1,7 +1,4 @@
-// lib/rcem.ts
-// Fixed RCEm table (PLN/MWh) and helpers.
-
-export const RCEM_TABLE: Record<string, number> = {
+const TABLE: Record<string, number> = {
   "2025-07": 284.83,
   "2025-06": 136.30,
   "2025-05": 216.97,
@@ -22,25 +19,11 @@ export const RCEM_TABLE: Record<string, number> = {
   "2023-11": 703.81
 };
 
-/** Get RCEm PLN/MWh for a given YYYY-MM-DD (picks by month). */
-export function rcemFor(dateISO: string): number | null {
-  if (!dateISO || typeof dateISO !== "string" || dateISO.length < 7) return null;
-  const ym = dateISO.slice(0, 7);
-  return RCEM_TABLE[ym] ?? null;
+export function rcemFor(dateISO:string): number | null {
+  const ym = dateISO.slice(0,7);
+  return (TABLE as any)[ym] ?? null;
 }
 
-/** Return the whole RCEm table (immutable copy). */
-export function rcemTable(): Record<string, number> {
-  return { ...RCEM_TABLE };
+export function rcemTable(): {month:string; price:number}[] {
+  return Object.keys(TABLE).sort().map(k=>({ month:k, price:TABLE[k] }));
 }
-
-/** Compute revenue in PLN from RCEm for given kWh generated on dateISO. */
-export function revenueFromRCEm(kwh: number, dateISO: string): number {
-  const price = rcemFor(dateISO);
-  if (price == null) return 0;
-  // PLN = kWh * (PLN/MWh) / 1000
-  const pln = (Number(kwh) || 0) * (Number(price) || 0) / 1000;
-  return Math.round(pln * 100) / 100;
-}
-
-export default {};

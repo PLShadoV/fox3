@@ -2,37 +2,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import StatTile from './StatTile';
 import PowerChart, { HourPoint } from './PowerChart';
+import { fmtHour } from '@/lib/date';
 import HourlyTable from './HourlyTable';
 import RangeCalculator from './RangeCalculator';
 import ThemeToggle from './ThemeToggle';
-import { fmtHour } from '@/lib/date';
 import { rcemFor, rcemTable } from '@/lib/rcem';
 
 type RCEHour = { timeISO: string; rce_pln_mwh: number };
 
 function normalizeHourly(gen: any): number[] {
-  // Accept a variety of shapes and diff if cumulative
   const arr = gen?.series || gen?.values || gen || [];
   if (!Array.isArray(arr)) return new Array(24).fill(0);
   const nums = arr.map((x:any)=> Number(x) || 0);
-
-  // policz różnice godzinowe (jeśli wejście było narastające)
   const diffs:number[] = [];
   let prev = 0;
-  for(let i=0;i<nums.length;i++){
-    diffs.push(Math.max(0, +(nums[i]-prev).toFixed(3)));
-    prev = nums[i];
-  }
-
-  // heurystyka: jeżeli suma wejścia dużo większa od sumy różnic -> wejście było narastające
+  for(let i=0;i<nums.length;i++){ diffs.push(Math.max(0, +(nums[i]-prev).toFixed(3))); prev = nums[i]; }
   const sumNums = nums.reduce((a,b)=>a+b,0);
   const sumDiffs = diffs.reduce((a,b)=>a+b,0);
-  const hourly = (sumNums > sumDiffs * 1.8) ? diffs : nums;
-
-  // dopasuj do 24 punktów
-  const out = hourly.slice(0,24);
-  while (out.length < 24) out.push(0);
-  return out;
+  return (sumNums>sumDiffs*1.8) ? diffs.slice(0,24) : nums.slice(0,24);
 }
 
 export default function DashboardClient(){
@@ -45,7 +32,7 @@ export default function DashboardClient(){
   const [loading, setLoading] = useState(false);
   const lastRealtimeFetch = useRef<number>(0);
 
-  // fetch realtime co 60 s, ale pokazuj niezależnie od wybranego dnia
+  // realtime every 60s, even when viewing other date
   useEffect(()=>{
     let stop = false;
     async function tick(){
@@ -60,24 +47,23 @@ export default function DashboardClient(){
           const w = j?.pvNowW ?? j?.pvNow ?? j?.watt ?? null;
           if(typeof w === 'number') setPvNow(w);
         }
-      }catch{/* ignore */}
+      }catch{}
     }
     tick();
-    const id = setInterval(tick, 60000);
+    const id = setInterval(tick, 6000);
     return ()=>{ stop=true; clearInterval(id); };
   }, []);
 
   async function loadDay(d:string){
     setErr(null); setLoading(true);
     try{
-      // FoxESS day
       const fr = await fetch(`/api/foxess/day?date=${encodeURIComponent(d)}`);
       const fj = await fr.json();
       if(!fr.ok || fj.ok===false) throw new Error(fj.error || 'FoxESS day error');
       const hourly = normalizeHourly(fj?.today?.generation || fj?.generation || fj?.result?.[0]);
-      setGenSeries(hourly);
+      while(hourly.length<24) hourly.push(0);
+      setGenSeries(hourly.slice(0,24));
 
-      // RCE hourly (opcjonalnie)
       const rr = await fetch(`/api/rce/day?date=${encodeURIComponent(d)}`);
       if(rr.ok){
         const rj = await rr.json();
@@ -87,9 +73,7 @@ export default function DashboardClient(){
           rce_pln_mwh: Number(x.rce_pln_mwh ?? x.price_pln_mwh ?? 0)
         })) : null;
         setRce(mapped);
-      }else{
-        setRce(null);
-      }
+      }else setRce(null);
     }catch(e:any){
       setErr(e.message);
     }finally{ setLoading(false); }
@@ -98,7 +82,7 @@ export default function DashboardClient(){
   useEffect(()=>{ loadDay(date); }, [date]);
 
   const chartData: HourPoint[] = useMemo(
-    () => genSeries.map((k, i) => ({ hour: i, t: fmtHour(i), kwh: k })),
+    () => genSeries.map((k, i) => ({ hour:i, t: fmtHour(i), kwh: k })),
     [genSeries]
   );
 
@@ -108,7 +92,7 @@ export default function DashboardClient(){
       const p = mode==='rce' ? (rce?.[i]?.rce_pln_mwh ?? null) : price;
       const used = (p==null ? null : Math.max(0, p));
       const revenue = used==null ? null : (kwh * used / 1000);
-      return { hour: fmtHour(i), kwh, price: used ?? undefined, revenue: revenue ?? undefined };
+      return { hour: fmtHour(i), kwh, price: used, revenue };
     });
   }, [genSeries, rce, mode, date]);
 
@@ -117,10 +101,10 @@ export default function DashboardClient(){
 
   return (
     <>
-      <div className="hstack" style={{marginBottom:12, alignItems:'center'}}>
+      <div className="hstack" style={{marginBottom:12, alignItems:'center', gap:12}}>
         <div style={{fontSize:28, fontWeight:800}}>FoxESS × RCE</div>
-        <a className="chip link" href="https://www.foxesscloud.com/" target="_blank" rel="noopener noreferrer">FoxESS</a>
-        <a className="chip link" href="https://raporty.pse.pl/report/rce-pln" target="_blank" rel="noopener noreferrer">RCE (PSE)</a>
+        <a className="chip link" href="https://www.foxesscloud.com/" target="_blank">FoxESS</a>
+        <a className="chip link" href="https://raporty.pse.pl/report/rce-pln" target="_blank">RCE (PSE)</a>
         <div className="spacer" />
         <ThemeToggle />
         <button className="chip" onClick={()=>setDate(new Date().toISOString().slice(0,10))}>Dziś</button>
@@ -130,8 +114,7 @@ export default function DashboardClient(){
         <input className="chip" type="date" value={date} onChange={e=>setDate(e.target.value)} />
       </div>
 
-      {/* Stat tiles */}
-      <div className="grid-3">
+      <div className="grid-tiles">
         <StatTile title="Moc teraz" value={pvNow!=null?`${pvNow} W`:'—'} subtitle="Realtime z inwertera (60 s)" />
         <StatTile title="Wygenerowano (dzień)" value={`${totalKWh.toFixed(1)} kWh`} />
         <StatTile title="Przychód (dzień)" value={`${totalRevenue.toFixed(2)} PLN`} subtitle={mode==='rce'?'RCE godzinowe':'RCEm (średnia mies.)'} />
@@ -145,17 +128,12 @@ export default function DashboardClient(){
         {mode==='rce' && !rce && <div className="notice">Brak danych RCE dla tego dnia — przełącz na RCEm.</div>}
       </div>
 
-      {/* BEZ title, jeśli PowerChart go nie obsługuje */}
-      <PowerChart data={chartData} />
+      <PowerChart data={chartData} title={`Generacja [kWh] — ${date}`} />
 
       <div style={{height:12}} />
-
       <HourlyTable rows={rows} date={date} priceLabel={mode==='rce'?'Cena RCE (PLN/MWh)':'Cena RCEm (PLN/MWh)'} />
-
       <div style={{height:12}} />
-
       <RangeCalculator />
-
       <div style={{height:12}} />
 
       <div className="glass" style={{padding:16}}>
