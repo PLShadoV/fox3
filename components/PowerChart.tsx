@@ -1,134 +1,146 @@
-"use client";
-import React from "react";
 
-/**
- * HourPoint represents energy generated in a given full hour (NOT cumulative).
- * hour: integer 0..23 (local time)
- * kwh: energy generated during that hour
- */
+"use client";
+import React, { useMemo } from "react";
+
 export type HourPoint = { hour: number; kwh: number };
 
-type Props = {
-  data: HourPoint[];
-  /** currentHour (0..24). If provided and date is today, we cut/soft-fade the curve at this x */
-  currentHour?: number | null;
-  /** optional title shown above the chart */
-  title?: string;
-};
+type Props =
+  | { points: HourPoint[]; series?: never }
+  | { series: number[]; points?: never };
 
 /**
- * PowerChart
- *  - smooth "wave" area chart (SVG) with glass/gradient style
- *  - expects hourly generation (kWh) points, not cumulative
- *  - draws a Catmull-Rom → bezier path for smoothness
+ * PowerChart — gładka "fala" godzinowej generacji (kWh/h).
+ * Przyjmuje albo `points` (zalecane), albo dla wstecznej kompatybilności `series` (24 liczby).
+ * Jeśli podasz `series`, komponent sam zmapuje do points = [{hour, kwh}].
  */
-export default function PowerChart({ data, currentHour = null, title }: Props) {
-  // Sort & clamp hours 0..23
-  const pts = [...data]
-    .filter(p => Number.isFinite(p.hour) && p.hour >= 0 && p.hour <= 23)
-    .sort((a, b) => a.hour - b.hour);
-
-  const width = 700;
-  const height = 260;
-  const padding = { l: 32, r: 12, t: 24, b: 28 };
-
-  const xs = (h: number) => padding.l + (h / 23) * (width - padding.l - padding.r);
-  const maxKwh = Math.max(1, ...pts.map(p => p.kwh));
-  const ys = (k: number) => height - padding.b - (k / maxKwh) * (height - padding.t - padding.b);
-
-  // Build smooth path using Catmull-Rom to cubic Bezier
-  const toPath = (points: {x:number,y:number}[]) => {
-    if (points.length === 0) return "";
-    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
-    let d = `M ${points[0].x} ${points[0].y}`;
-    for (let i = 0; i < points.length - 1; i++) {
-      const p0 = points[i - 1] ?? points[i];
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      const p3 = points[i + 2] ?? p2;
-
-      const c1x = p1.x + (p2.x - p0.x) / 6;
-      const c1y = p1.y + (p2.y - p0.y) / 6;
-      const c2x = p2.x - (p3.x - p1.x) / 6;
-      const c2y = p2.y - (p3.y - p1.y) / 6;
-
-      d += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`;
+export default function PowerChart(props: Props) {
+  const points: HourPoint[] = useMemo(() => {
+    if ("points" in props && props.points) return normalize(props.points);
+    if ("series" in props && props.series) {
+      const arr = (props.series || []).slice(0, 24);
+      return normalize(arr.map((kwh, hour) => ({ hour, kwh })));
     }
-    return d;
-  };
+    return [];
+  }, [props]);
 
-  const points = pts.map(p => ({ x: xs(p.hour), y: ys(p.kwh) }));
-  const baseY = ys(0);
+  const pathD = useMemo(() => buildPath(points), [points]);
+  const gradientId = "pvGrad_" + Math.random().toString(36).slice(2, 8);
 
-  // Truncate visually at currentHour (if provided): draw a mask that ends at x(now)
-  const nowX = currentHour == null ? null : xs(Math.max(0, Math.min(23, currentHour)));
-  const maskId = "pc-mask-" + Math.random().toString(36).slice(2);
+  // Oblicz „teraz” jako pionowy cut (jeśli wizualizujesz bieżący dzień)
+  const now = new Date();
+  const nowHour = now.getHours() + now.getMinutes() / 60;
 
   return (
-    <div className="rounded-3xl p-4 bg-gradient-to-b from-white/5 to-white/0 dark:from-white/10 dark:to-white/0 border border-white/10 shadow-xl backdrop-blur">
-      {title && <div className="text-sm opacity-80 mb-2">{title}</div>}
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[260px]">
+    <div className="w-full rounded-2xl border border-white/10 bg-white/5 dark:bg-white/5 backdrop-blur-md p-4 shadow-lg">
+      <svg viewBox="0 0 1000 300" className="w-full h-56 md:h-64">
         <defs>
-          <linearGradient id="pc-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgb(59 130 246)" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="rgb(59 130 246)" stopOpacity="0.04" />
+          <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="rgba(59,130,246,0.8)" />
+            <stop offset="100%" stopColor="rgba(59,130,246,0.05)" />
           </linearGradient>
-          <filter id="pc-glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          {nowX !== null && (
-            <linearGradient id="pc-fade" x1="0" x2="1" y1="0" y2="0">
-              <stop offset="0%" stopColor="white" stopOpacity="1" />
-              <stop offset="100%" stopColor="white" stopOpacity="0" />
-            </linearGradient>
-          )}
-          {nowX !== null && (
-            <mask id={maskId}>
-              <rect x="0" y="0" width={nowX} height={height} fill="white" />
-              {/* soft fade for the last ~24px */}
-              <rect x={Math.max(0, nowX - 24)} y="0" width="24" height={height} fill="url(#pc-fade)" />
-            </mask>
-          )}
+          <clipPath id={gradientId + "_clip"}>
+            {/** maska: utnij do „teraz” jeśli dotyczy (0..24h) */}
+            <rect
+              x="0"
+              y="0"
+              width={(Math.min(Math.max(nowHour, 0), 24) / 24) * 1000}
+              height="300"
+              rx="0"
+              ry="0"
+            />
+          </clipPath>
         </defs>
 
-        {/* grid */}
-        {[0,6,12,18,23].map(h => (
-          <g key={h}>
-            <line x1={xs(h)} x2={xs(h)} y1={padding.t} y2={height - padding.b} className="stroke-white/10" />
-            <text x={xs(h)} y={height - 6} textAnchor="middle" className="fill-white/60 text-[10px]">
-              {String(h).padStart(2,"0")}:00
+        {/** siatka */}
+        <g opacity="0.15">
+          {[0, 6, 12, 18, 24].map((h) => (
+            <line
+              key={h}
+              x1={(h / 24) * 1000}
+              x2={(h / 24) * 1000}
+              y1={0}
+              y2={300}
+              stroke="currentColor"
+              strokeWidth="1"
+            />
+          ))}
+          {[0, 0.25, 0.5, 0.75, 1].map((f, i) => (
+            <line
+              key={i}
+              x1={0}
+              x2={1000}
+              y1={300 - f * 280 - 10}
+              y2={300 - f * 280 - 10}
+              stroke="currentColor"
+              strokeWidth="1"
+            />
+          ))}
+        </g>
+
+        {/** obszar wypełniony (przycięty do „teraz”) */}
+        <path
+          d={pathD.area}
+          fill={`url(#${gradientId})`}
+          clipPath={`url(#${gradientId}_clip)`}
+        />
+        {/** linia */}
+        <path d={pathD.line} fill="none" stroke="currentColor" strokeWidth="2.5" />
+
+        {/** oś godzin (0..23) */}
+        <g fontSize="10" opacity="0.7">
+          {[0, 4, 8, 12, 16, 20, 24].map((h) => (
+            <text key={h} x={(h / 24) * 1000} y={295} textAnchor="middle">
+              {String(h).padStart(2, "0")}:00
             </text>
-          </g>
-        ))}
-
-        {/* axis line */}
-        <line x1={padding.l} x2={width - padding.r} y1={baseY} y2={baseY} className="stroke-white/20" />
-
-        {/* area fill */}
-        {points.length >= 2 && (
-          <path
-            d={`${toPath(points)} L ${points.at(-1)!.x} ${baseY} L ${points[0].x} ${baseY} Z`}
-            fill="url(#pc-fill)"
-            mask={nowX !== null ? `url(#${maskId})` : undefined}
-          />
-        )}
-
-        {/* smooth line */}
-        {points.length >= 2 && (
-          <path
-            d={toPath(points)}
-            stroke="rgb(59 130 246)"
-            strokeWidth="2"
-            fill="none"
-            filter="url(#pc-glow)"
-            mask={nowX !== null ? `url(#${maskId})` : undefined}
-          />
-        )}
+          ))}
+        </g>
       </svg>
     </div>
   );
+}
+
+/** Normalizacja — dotnij do 0..23, usuń NaN, wartości <0 -> 0 */
+function normalize(arr: HourPoint[]): HourPoint[] {
+  return arr
+    .filter((p) => Number.isFinite(p.hour) && p.hour >= 0 && p.hour < 24)
+    .map((p) => ({ hour: Math.round(p.hour), kwh: Math.max(0, Number(p.kwh) || 0) }));
+}
+
+/** Budowa ścieżek Catmull–Rom → Bézier; mapowanie [0..24]x[0..max] → [0..1000]x[300..20] */
+function buildPath(points: HourPoint[]): { line: string; area: string } {
+  if (!points.length) return { line: "", area: "" };
+  const max = Math.max(1, ...points.map((p) => p.kwh));
+  const mapX = (h: number) => (h / 24) * 1000;
+  const mapY = (k: number) => 300 - (k / max) * 280 - 10;
+
+  // Punkty w SVG
+  const P = points.map((p) => ({ x: mapX(p.hour), y: mapY(p.kwh) }));
+  // Jeśli pojedynczy punkt — płaska kreska
+  if (P.length === 1) {
+    const x = P[0].x, y = P[0].y;
+    const line = `M ${x} ${y} L ${x} ${y}`;
+    const area = `M ${x} ${300} L ${x} ${y} L ${x} ${300} Z`;
+    return { line, area };
+    }
+
+  // Catmull–Rom to Bezier
+  const segs: string[] = [];
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[Math.max(0, i - 1)];
+    const p1 = P[i];
+    const p2 = P[i + 1];
+    const p3 = P[Math.min(P.length - 1, i + 2)];
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    if (i === 0) segs.push(`M ${p1.x} ${p1.y}`);
+    segs.push(`C ${c1x} ${c1y} ${c2x} ${c2y} ${p2.x} ${p2.y}`);
+  }
+  const line = segs.join(" ");
+
+  // Area pod krzywą
+  const first = P[0], last = P[P.length - 1];
+  const area = `${line} L ${last.x} 300 L ${first.x} 300 Z`;
+  return { line, area };
 }
