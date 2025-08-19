@@ -1,5 +1,6 @@
-// components/RcemMonthlyCard.tsx
-import React from "react";
+"use client";
+
+import { useEffect, useState } from "react";
 
 type Row = { year: number; monthIndex: number; value: number };
 
@@ -8,51 +9,69 @@ function ymLabel(year: number, monthIndex: number) {
   return `${year}-${m}`;
 }
 
-export default async function RcemMonthlyCard() {
-  let rows: Row[] = [];
-  let error: string | null = null;
+export default function RcemMonthlyCard() {
+  const [rows, setRows] = useState<Row[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/rcem`, {
-      // fallback: jeśli NEXT_PUBLIC_BASE_URL nie ustawiony, użyj relatywnego:
-      cache: "no-store",
-    }).catch(() => fetch("/api/rcem", { cache: "no-store" }));
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
 
-    if (!res || !res.ok) {
-      throw new Error("Nie mogę pobrać /api/rcem");
-    }
-    const j = await res.json();
+    fetch("/api/rcem", { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`/api/rcem HTTP ${res.status}`);
+        const j = await res.json();
 
-    const candidateArrays = [
-      j?.rows,
-      j?.data?.rows,
-      j?.prices,
-      j?.data?.prices,
-    ].filter(Array.isArray) as Array<Row[]>;
+        const candidate =
+          (Array.isArray(j?.rows) && j.rows) ||
+          (Array.isArray(j?.data?.rows) && j.data.rows) ||
+          (Array.isArray(j?.prices) && j.prices) ||
+          (Array.isArray(j?.data?.prices) && j.data.prices) ||
+          [];
 
-    if (!candidateArrays.length) {
-      throw new Error("Nieoczekiwany kształt odpowiedzi /api/rcem");
-    }
-    rows = candidateArrays[0]
-      .map((r: any) => ({
-        year: Number(r.year),
-        monthIndex: Number(r.monthIndex),
-        value: Number(r.value),
-      }))
-      .filter((r: Row) => Number.isFinite(r.year) && Number.isFinite(r.monthIndex) && Number.isFinite(r.value))
-      // sortuj rosnąco po czasie
-      .sort((a, b) => (a.year - b.year) || (a.monthIndex - b.monthIndex));
-  } catch (e: any) {
-    error = e?.message || String(e);
-  }
+        const norm: Row[] = candidate
+          .map((r: any) => ({
+            year: Number(r?.year),
+            monthIndex: Number(r?.monthIndex),
+            value: Number(r?.value),
+          }))
+          .filter(
+            (r: Row) =>
+              Number.isFinite(r.year) &&
+              Number.isFinite(r.monthIndex) &&
+              Number.isFinite(r.value)
+          )
+          .sort((a, b) => a.year - b.year || a.monthIndex - b.monthIndex);
+
+        if (!cancelled) setRows(norm);
+      })
+      .catch((e: any) => {
+        if (!cancelled) setError(e?.message || String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="pv-card p-4">
       <div className="text-xl font-semibold mb-3">RCEm – miesięczne ceny (PLN/MWh)</div>
 
-      {error ? (
-        <div className="text-red-400">{error}</div>
-      ) : (
+      {loading && <div className="opacity-80 text-sm">Ładowanie…</div>}
+
+      {error && (
+        <div className="text-red-400 text-sm break-words">
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && (
         <div className="overflow-x-auto">
           <table className="min-w-[420px] text-sm">
             <thead>
