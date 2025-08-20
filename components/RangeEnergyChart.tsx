@@ -1,19 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-} from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 type View = "day" | "month" | "year";
-type DayRow   = { hour: string; kwh: number };
-type MonthRow = { day: string;  kwh: number };
-type YearRow  = { month: string;kwh: number };
+type DayRow   = { hour: string;  kwh: number };
+type MonthRow = { day: string;   kwh: number };
+type YearRow  = { month: string; kwh: number };
 
 function useMeasuredWidth() {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -34,7 +27,6 @@ function useMeasuredWidth() {
 
 function ym(date: string) { return date.slice(0,7); }
 function yyyy(date: string) { return date.slice(0,4); }
-
 function add(date: string, type: View, delta: number) {
   const d = new Date(date + "T00:00:00");
   if (type === "day") d.setDate(d.getDate() + delta);
@@ -42,7 +34,6 @@ function add(date: string, type: View, delta: number) {
   if (type === "year") d.setFullYear(d.getFullYear() + delta);
   return d.toISOString().slice(0,10);
 }
-
 async function getJSON(path: string){
   const res = await fetch(path, { cache: "no-store" });
   if (!res.ok) throw new Error(`Fetch ${path} failed: ${res.status}`);
@@ -50,7 +41,7 @@ async function getJSON(path: string){
 }
 
 export default function RangeEnergyChart({ initialDate }: { initialDate: string }) {
-  const [view, setView] = useState<View>("day");
+  const [view, setView] = useState<View>("month");
   const [cursor, setCursor] = useState<string>(initialDate);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
@@ -68,8 +59,13 @@ export default function RangeEnergyChart({ initialDate }: { initialDate: string 
       try {
         setLoading(true);
         setError(null);
+
         if (view === "day") {
-          const j = await getJSON(`/api/foxess/summary/day-cached?date=${cursor}`);
+          const todayIso = new Date().toISOString().slice(0,10);
+          const url = cursor === todayIso
+            ? `/api/foxess/summary/day?date=${cursor}`
+            : `/api/foxess/summary/day-cached?date=${cursor}`;
+          const j = await getJSON(url);
           const series: number[] = j?.today?.generation?.series ?? [];
           const rows: DayRow[] = (Array.isArray(series) ? series : []).map((kwh, i) => ({
             hour: `${String(i).padStart(2,"0")}:00`,
@@ -108,7 +104,6 @@ export default function RangeEnergyChart({ initialDate }: { initialDate: string 
 
   const hasAny  = chart.data.length > 0;
   const allZero = hasAny && chart.data.every(d => !d.kwh);
-
   const subtitle = view === "day" ? cursor : view === "month" ? ym(cursor) : yyyy(cursor);
 
   return (
