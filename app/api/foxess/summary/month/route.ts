@@ -17,11 +17,12 @@ function toISO(y: number, m0: number, d: number) {
   return `${y}-${mm}-${dd}`;
 }
 async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
-async function fetchJSONRetry(url: string, opts: RequestInit, tries = 3, baseDelay = 250) {
+
+async function fetchJSONRetry(url: string, tries = 3, baseDelay = 300) {
   let lastErr: any;
   for (let i = 0; i < tries; i++) {
     try {
-      const r = await fetch(url, { cache: "no-store", ...opts });
+      const r = await fetch(url, { cache: "no-store" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return await r.json();
     } catch (e) {
@@ -30,24 +31,6 @@ async function fetchJSONRetry(url: string, opts: RequestInit, tries = 3, baseDel
     }
   }
   throw lastErr;
-}
-async function pMapLimit<T, R>(
-  items: T[],
-  limit: number,
-  mapper: (item: T, idx: number) => Promise<R>
-): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let i = 0;
-  async function worker() {
-    while (true) {
-      const idx = i++;
-      if (idx >= items.length) break;
-      out[idx] = await mapper(items[idx], idx);
-    }
-  }
-  const n = Math.min(limit, items.length);
-  await Promise.all(Array.from({ length: n }, worker));
-  return out;
 }
 
 export async function GET(req: NextRequest) {
@@ -65,92 +48,44 @@ export async function GET(req: NextRequest) {
     }
 
     const base = originFrom(req);
-    const tz = process.env.FOXESS_TZ || "Europe/Warsaw";
-    const todayIso = new Date().toISOString().slice(0, 10);
-
     const n = daysInMonth(y, m0);
     const dates = Array.from({ length: n }, (_, i) => toISO(y, m0, i + 1));
-    const byDate = new Map<string, { date: string; generation: number }>(
-      dates.map((d) => [d, { date: d, generation: 0 }])
-    );
 
-    let nativeOk = false;
+    const days: { date: string; generation: number }[] = [];
+    const failedDates: string[] = [];
 
-    // 1) próbuj natywną agregację FoxESS (z TZ) z retry
-    try {
-      const fox = await fetchJSONRetry(
-        `${process.env.FOXESS_BASE ?? "https://www.foxesscloud.com"}/op/v1/device/energy/month`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            token: process.env.FOXESS_TOKEN || "",
-          },
-          body: JSON.stringify({ sn: process.env.FOXESS_SN, month, timeZone: tz }),
-        },
-        3,
-        300
-      );
-      const rows: any[] = fox?.result || fox?.data || [];
-      if (Array.isArray(rows) && rows.length) {
-        for (const it of rows) {
-          const d = String(it?.date || "");
-          const v = Number(it?.value);
-          if (byDate.has(d) && Number.isFinite(v)) {
-            byDate.get(d)!.generation = Math.max(0, v);
-          }
+    // SEKWENCYJNIE, z małym opóźnieniem między żądaniami, żeby nie wpaść w rate-limit
+    for (let i = 0; i < dates.length; i++) {
+      const d = dates[i];
+      try {
+        // 1) preferuj nasz endpoint „dokładny”
+        const j = await fetchJSONRetry(`${base}/api/foxess/summary/day-accurate?date=${d}`, 3, 300);
+        let gen = Number(j?.total_kwh ?? 0);
+        if (!Number.isFinite(gen) || gen <= 0) {
+          // 2) fallback do /day (no-cache)
+          const j2 = await fetchJSONRetry(`${base}/api/foxess/summary/day?date=${d}`, 2, 250);
+          const t2 = Number(j2?.today?.generation?.total);
+          const s2: number[] = Array.isArray(j2?.today?.generation?.series) ? j2.today.generation.series : [];
+          const sum2 = s2.reduce((a, v) => a + (Number(v) || 0), 0);
+          gen = Number.isFinite(t2) && t2 > 0 ? t2 : sum2;
         }
-        nativeOk = true;
+        days.push({ date: d, generation: +Number(gen || 0).toFixed(2) });
+      } catch {
+        failedDates.push(d);
+        days.push({ date: d, generation: 0 });
       }
-    } catch {
-      // przejdź do fallbacków
+      // „grzeczność” dla API
+      await sleep(200);
     }
 
-    // 2) fallback: dla dni z 0 spróbuj /day-cached (retry), a jeśli nadal 0 → /day (retry)
-    const failed: string[] = [];
-    const need = Array.from(byDate.values()).filter((d) => !Number(d.generation));
-    if (need.length) {
-      await pMapLimit(need, 3, async ({ date }) => {
-        const isToday = date === todayIso;
-        let got = 0;
-
-        // a) day-cached
-        try {
-          const j1 = await fetchJSONRetry(`${base}/api/foxess/summary/day-cached?date=${date}`, {}, 3, 200);
-          const t = Number(j1?.today?.generation?.total);
-          const series: number[] = Array.isArray(j1?.today?.generation?.series) ? j1.today.generation.series : [];
-          const sum = series.reduce((a, v) => a + (Number(v) || 0), 0);
-          got = Number.isFinite(t) && t > 0 ? t : sum;
-        } catch {}
-
-        // b) jeśli dalej 0 → day (nawet dla dni historycznych)
-        if (!Number(got)) {
-          try {
-            const j2 = await fetchJSONRetry(`${base}/api/foxess/summary/day?date=${date}`, {}, 3, 300);
-            const t2 = Number(j2?.today?.generation?.total);
-            const series2: number[] = Array.isArray(j2?.today?.generation?.series) ? j2.today.generation.series : [];
-            const sum2 = series2.reduce((a, v) => a + (Number(v) || 0), 0);
-            got = Number.isFinite(t2) && t2 > 0 ? t2 : sum2;
-          } catch {}
-        }
-
-        if (Number(got)) {
-          byDate.get(date)!.generation = +Number(got).toFixed(2);
-        } else {
-          failed.push(date);
-        }
-      });
-    }
-
-    const out = dates.map((d) => byDate.get(d)!);
-    const total = +out.reduce((a, x) => a + (Number(x.generation) || 0), 0).toFixed(2);
+    const total = +days.reduce((a, x) => a + (Number(x.generation) || 0), 0).toFixed(2);
 
     return NextResponse.json({
       ok: true,
       month,
-      source: nativeOk ? "foxess-native+fallback" : "fallback-only",
-      failedDates: failed, // <<— zobaczysz, które dni nie dały się pobrać
-      days: out,
+      source: "day-accurate-seq",
+      failedDates,
+      days,
       totals: { generation: total },
     });
   } catch (e: any) {

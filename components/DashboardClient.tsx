@@ -39,13 +39,11 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
   const [err, setErr] = useState<string| null>(null);
   const lastPv = useRef<number|null>(null);
 
-  // Sync z ?date=
   useEffect(()=>{
     const d = sp.get("date") || initialDate || new Date().toISOString().slice(0,10);
     setDate(d);
   }, [sp, initialDate]);
 
-  // Realtime co 60s
   useEffect(()=>{
     let alive = true;
     const fetchOnce = async ()=>{
@@ -70,12 +68,11 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
     return ()=> { alive = false; clearInterval(t); };
   }, []);
 
-  // Dzienna produkcja (kafelek) + seria godzinowa do wykresu mocy
+  // Dzień – dokładny total + seria do wykresu
   useEffect(()=>{
     let cancelled = false;
     setErr(null);
 
-    // dokładna suma dnia jak w aplikacji FoxESS
     getJSON(`/api/foxess/summary/day-accurate?date=${date}`)
       .then(j => {
         if (cancelled) return;
@@ -86,16 +83,15 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
       })
       .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
 
-    // uzupełnij serię, gdyby 1) jej nie dostarczyło
+    // uzupełnij serię, gdyby endpoint jej nie zwrócił
     getJSON(`/api/foxess/summary/day-cached?date=${date}`)
       .then(j => {
         if (cancelled) return;
-        if (!Array.isArray(j?.today?.generation?.series)) return;
-        if (!genSeries.length) setGenSeries(j.today.generation.series);
+        const s = Array.isArray(j?.today?.generation?.series) ? j.today.generation.series : [];
+        if (!genSeries.length && s.length) setGenSeries(s);
       })
-      .catch(()=>{ /* ignoruj */ });
+      .catch(()=>{});
 
-    // przychód dzienny
     getJSON(`/api/revenue/day?date=${date}&mode=${calcMode}`)
       .then(j => { if (!cancelled) setRevenue({ rows: j?.rows || [], total: j?.totals?.revenue_pln ?? null }); })
       .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
@@ -103,8 +99,8 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
     return ()=> { cancelled = true; }
   }, [date, calcMode]);
 
-  // krzywa mocy (złagodzona)
   function easeInOutCubic(t:number){ return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3)/2; }
+
   const powerWave = useMemo(()=>{
     const today = new Date().toISOString().slice(0,10);
     const isToday = date === today;

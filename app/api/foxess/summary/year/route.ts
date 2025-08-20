@@ -9,11 +9,11 @@ function originFrom(req: NextRequest) {
   return `${proto}://${host}`;
 }
 async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
-async function fetchJSONRetry(url: string, opts: RequestInit, tries = 3, baseDelay = 250) {
+async function fetchJSONRetry(url: string, tries = 3, baseDelay = 300) {
   let lastErr: any;
   for (let i = 0; i < tries; i++) {
     try {
-      const r = await fetch(url, { cache: "no-store", ...opts });
+      const r = await fetch(url, { cache: "no-store" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return await r.json();
     } catch (e) {
@@ -22,24 +22,6 @@ async function fetchJSONRetry(url: string, opts: RequestInit, tries = 3, baseDel
     }
   }
   throw lastErr;
-}
-async function pMapLimit<T, R>(
-  items: T[],
-  limit: number,
-  mapper: (item: T, idx: number) => Promise<R>
-): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let i = 0;
-  async function worker() {
-    while (true) {
-      const idx = i++;
-      if (idx >= items.length) break;
-      out[idx] = await mapper(items[idx], idx);
-    }
-  }
-  const n = Math.min(limit, items.length);
-  await Promise.all(Array.from({ length: n }, worker));
-  return out;
 }
 
 export async function GET(req: NextRequest) {
@@ -51,63 +33,27 @@ export async function GET(req: NextRequest) {
     }
 
     const base = originFrom(req);
-    const tz = process.env.FOXESS_TZ || "Europe/Warsaw";
+    const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`);
 
-    // 1) init 12 miesięcy
-    const months = Array.from({ length: 12 }, (_, i) => ({ month: String(i + 1).padStart(2, "0"), generation: 0 }));
-
-    // 2) spróbuj natywny rok FoxESS (z TZ)
-    let nativeOk = false;
-    try {
-      const fox = await fetchJSONRetry(
-        `${process.env.FOXESS_BASE ?? "https://www.foxesscloud.com"}/op/v1/device/energy/year`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            token: process.env.FOXESS_TOKEN || "",
-          },
-          body: JSON.stringify({ sn: process.env.FOXESS_SN, year, timeZone: tz }),
-        },
-        3,
-        300
-      );
-      const rows: any[] = fox?.result || fox?.data || [];
-      if (Array.isArray(rows)) {
-        for (const it of rows) {
-          const mm = String(it?.date || "").slice(-2);
-          const v = Number(it?.value);
-          const hit = months.find((m) => m.month === mm);
-          if (hit && Number.isFinite(v)) hit.generation = Math.max(0, v);
-        }
-        nativeOk = true;
+    const out: { month: string; generation: number }[] = [];
+    for (const ym of months) {
+      try {
+        const j = await fetchJSONRetry(`${base}/api/foxess/summary/month?month=${ym}`, 3, 300);
+        const gen = Number(j?.totals?.generation ?? 0) || 0;
+        out.push({ month: ym.slice(-2), generation: +gen.toFixed(2) });
+      } catch {
+        out.push({ month: ym.slice(-2), generation: 0 });
       }
-    } catch {
-      // przejdź do fallbacku
+      await sleep(150);
     }
 
-    // 3) fallback — uzupełnij brakujące miesiące naszym /month (który ma retry+fallback per dzień)
-    const need = months.filter((m) => !Number(m.generation));
-    if (need.length) {
-      await pMapLimit(need, 2, async (m) => {
-        try {
-          const j = await fetchJSONRetry(`${base}/api/foxess/summary/month?month=${year}-${m.month}`, {}, 3, 300);
-          const val = Number(j?.totals?.generation ?? 0) || 0;
-          m.generation = +val.toFixed(2);
-        } catch {
-          // zostaw 0
-        }
-      });
-    }
-
-    const out = months.sort((a, b) => a.month.localeCompare(b.month));
-    const total = +out.reduce((a, x) => a + (Number(x.generation) || 0), 0).toFixed(2);
+    const total = +out.reduce((a, m) => a + (Number(m.generation) || 0), 0).toFixed(2);
 
     return NextResponse.json({
       ok: true,
       year,
-      source: nativeOk ? "foxess-native+fallback" : "fallback-only",
-      months: out,
+      source: "sum(month:day-accurate-seq)",
+      months: out.sort((a, b) => a.month.localeCompare(b.month)),
       totals: { generation: total },
     });
   } catch (e: any) {
