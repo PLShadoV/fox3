@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { useEffect, useRef, useState } from "react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 type Mode = "day" | "month" | "year";
 
 type Props = {
-  /** opcjonalnie startowa data YYYY-MM-DD; np. z DashboardClient */
+  /** opcjonalna startowa data YYYY-MM-DD (np. z DashboardClient) */
   initialDate?: string;
 };
 
-// ====== UTILS DATY (czysty UTC – nie przeskakuje co 2 dni) ======
+/* ================== UTILS DATY – CZYSTY UTC ================== */
 function parseYMD(s: string) {
   const [y, m, d] = s.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d));
@@ -30,7 +30,26 @@ function add(date: string, type: Mode, delta: number) {
   if (type === "year")  d.setUTCFullYear(d.getUTCFullYear() + delta);
   return formatYMDUTC(d);
 }
-// ================================================================
+/* ============================================================= */
+
+/** mierzy realną szerokość diva, żeby Recharts miał co rysować */
+function useMeasuredWidth() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver((ents) => {
+      const w = Math.floor(ents[0].contentRect.width);
+      setWidth(w > 0 ? w : 0);
+    });
+    ro.observe(el);
+    // inicjalne
+    setWidth(el.clientWidth > 0 ? el.clientWidth : 0);
+    return () => ro.disconnect();
+  }, []);
+  return { ref, width };
+}
 
 async function getJSON(path: string) {
   const res = await fetch(path, { cache: "no-store" });
@@ -44,24 +63,25 @@ export default function RangeEnergyChart({ initialDate }: Props) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<{ label: string; kwh: number }[]>([]);
+  const H = 320;
+  const { ref, width } = useMeasuredWidth();
 
-  // jeśli parent zmieni initialDate (np. klik na „Dziś”) — zsynchronizuj
-  useEffect(() => {
-    if (initialDate) setDate(initialDate);
-  }, [initialDate]);
+  // zsynchronizuj z parentem (np. RangeButtons → „Dziś”)
+  useEffect(() => { if (initialDate) setDate(initialDate); }, [initialDate]);
 
+  // ładowanie danych
   useEffect(() => {
     let cancelled = false;
 
-    async function run() {
+    (async () => {
       try {
         setLoading(true);
         setErr(null);
 
         if (mode === "day") {
           const j = await getJSON(`/api/foxess/summary/day-accurate?date=${date}`);
-          const series: number[] = j?.series || [];
-          const rows = (Array.isArray(series) ? series : []).map((v, i) => ({
+          const series: number[] = Array.isArray(j?.series) ? j.series : [];
+          const rows = series.map((v, i) => ({
             label: `${String(i).padStart(2, "0")}:00`,
             kwh: Number(v) || 0,
           }));
@@ -75,7 +95,7 @@ export default function RangeEnergyChart({ initialDate }: Props) {
           if (!cancelled) setData(rows);
         } else {
           const j = await getJSON(`/api/foxess/summary/year?year=${yyyy(date)}`);
-          // Twoje /year zwraca { months: [{ month: "01", generation: ... }] }
+          // { months: [{ month: "01", generation: ... }] }
           const rows = (j?.months || []).map((m: any) => ({
             label: String(m?.month || ""),
             kwh: Number(m?.generation) || 0,
@@ -87,9 +107,8 @@ export default function RangeEnergyChart({ initialDate }: Props) {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }
+    })();
 
-    run();
     return () => { cancelled = true; };
   }, [mode, date]);
 
@@ -112,22 +131,30 @@ export default function RangeEnergyChart({ initialDate }: Props) {
         </div>
       </div>
 
-      <div className="h-80">
+      <div ref={ref} className="w-full" style={{ height: H }}>
         {loading && <div className="h-full grid place-items-center text-sm opacity-70">Ładowanie…</div>}
         {!loading && err && <div className="h-full grid place-items-center text-sm text-red-400">{err}</div>}
-        {!loading && !err && data.length === 0 && (
+        {!loading && !err && width <= 0 && (
+          <div className="h-full grid place-items-center text-sm opacity-70">Oczekiwanie na rozmiar kontenera…</div>
+        )}
+        {!loading && !err && width > 0 && data.length === 0 && (
           <div className="h-full grid place-items-center text-sm opacity-70">Brak danych do wyświetlenia.</div>
         )}
-        {!loading && !err && data.length > 0 && (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-              <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} width={60} unit=" kWh" />
-              <Tooltip formatter={(val: any) => [`${Number(val).toFixed(2)} kWh`, "Energia"]} />
-              <Bar dataKey="kwh" fill="#10b981" />
-            </BarChart>
-          </ResponsiveContainer>
+        {!loading && !err && width > 0 && data.length > 0 && (
+          <BarChart width={width} height={H} data={data}>
+            <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+            <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} width={60} unit=" kWh" />
+            <Tooltip
+              formatter={(val: any) => [`${Number(val).toFixed(2)} kWh`, "Energia"]}
+              labelFormatter={(label) => {
+                if (mode === "day") return `Godzina: ${label}`;
+                if (mode === "month") return `Dzień: ${label}`;
+                return `Miesiąc: ${label}`;
+              }}
+            />
+            <Bar dataKey="kwh" fill="#10b981" />
+          </BarChart>
         )}
       </div>
     </div>
