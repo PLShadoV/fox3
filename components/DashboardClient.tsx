@@ -75,28 +75,27 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
     let cancelled = false;
     setErr(null);
 
-    // 1) dokładna suma dnia jak w aplikacji FoxESS
+    // dokładna suma dnia jak w aplikacji FoxESS
     getJSON(`/api/foxess/summary/day-accurate?date=${date}`)
       .then(j => {
         if (cancelled) return;
         const total = Number(j?.total_kwh);
         setGenTotal(Number.isFinite(total) ? total : null);
-        // Podmień serię jeśli endpoint ją zwrócił (żeby wykres mocy miał punkty)
         const series = Array.isArray(j?.series) ? j.series : [];
         if (series.length) setGenSeries(series);
       })
       .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
 
-    // 2) gdyby 1) nie podało serii — pobierz klasyczną serię godzinową
+    // uzupełnij serię, gdyby 1) jej nie dostarczyło
     getJSON(`/api/foxess/summary/day-cached?date=${date}`)
       .then(j => {
         if (cancelled) return;
         if (!Array.isArray(j?.today?.generation?.series)) return;
-        setGenSeries(j.today.generation.series);
+        if (!genSeries.length) setGenSeries(j.today.generation.series);
       })
-      .catch(()=>{ /* ignoruj – mamy total z day-accurate */ });
+      .catch(()=>{ /* ignoruj */ });
 
-    // 3) przychód dzienny
+    // przychód dzienny
     getJSON(`/api/revenue/day?date=${date}&mode=${calcMode}`)
       .then(j => { if (!cancelled) setRevenue({ rows: j?.rows || [], total: j?.totals?.revenue_pln ?? null }); })
       .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
@@ -169,9 +168,7 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
       </div>
 
       <RangeCalculator />
-
       <RangeEnergyChart initialDate={date} />
-
       <RcemMonthlyCard />
     </div>
   );
