@@ -1,154 +1,124 @@
 "use client";
+import { useEffect, useState } from "react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  Line,
+  LineChart,
+} from "recharts";
+import { Button } from "@/components/ui/button";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-
-type View = "day" | "month" | "year";
-type DayRow   = { hour: string;  kwh: number };
-type MonthRow = { day: string;   kwh: number };
-type YearRow  = { month: string; kwh: number };
-
-function useMeasuredWidth() {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [w, setW] = useState(0);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver((ents) => {
-      const width = Math.floor(ents[0].contentRect.width);
-      setW(width > 0 ? width : 0);
-    });
-    ro.observe(el);
-    setW(el.clientWidth > 0 ? el.clientWidth : 0);
-    return () => ro.disconnect();
-  }, []);
-  return { ref, width: w };
+// --- UTILS DATY (UTC, żeby nie skakało co 2 dni) ---
+function parseYMD(s: string) {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
 }
-
-function ym(date: string) { return date.slice(0,7); }
-function yyyy(date: string) { return date.slice(0,4); }
-function add(date: string, type: View, delta: number) {
-  const d = new Date(date + "T00:00:00");
-  if (type === "day") d.setDate(d.getDate() + delta);
-  if (type === "month") d.setMonth(d.getMonth() + delta);
-  if (type === "year") d.setFullYear(d.getFullYear() + delta);
-  return d.toISOString().slice(0,10);
+function formatYMDUTC(d: Date) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const da = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${da}`;
 }
-async function getJSON(path: string){
-  const res = await fetch(path, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Fetch ${path} failed: ${res.status}`);
-  return res.json();
+function ym(date: string) { return date.slice(0, 7); }
+function yyyy(date: string) { return date.slice(0, 4); }
+function add(date: string, type: "day"|"month"|"year", delta: number) {
+  const d = parseYMD(date);
+  if (type === "day")   d.setUTCDate(d.getUTCDate() + delta);
+  if (type === "month") d.setUTCMonth(d.getUTCMonth() + delta);
+  if (type === "year")  d.setUTCFullYear(d.getUTCFullYear() + delta);
+  return formatYMDUTC(d);
 }
+// ---------------------------------------------------
 
-export default function RangeEnergyChart({ initialDate }: { initialDate: string }) {
-  const [view, setView] = useState<View>("month");
-  const [cursor, setCursor] = useState<string>(initialDate);
+type Mode = "day" | "month" | "year";
+
+export default function RangeEnergyChart() {
+  const [mode, setMode] = useState<Mode>("day");
+  const [date, setDate] = useState(() => formatYMDUTC(new Date()));
+  const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const [dayRows,   setDayRows]   = useState<DayRow[]>([]);
-  const [monthRows, setMonthRows] = useState<MonthRow[]>([]);
-  const [yearRows,  setYearRows]  = useState<YearRow[]>([]);
-  const H = 288;
-  const { ref, width } = useMeasuredWidth();
 
-  useEffect(()=>{ setCursor(initialDate); }, [initialDate]);
+  useEffect(() => {
+    let url = "";
+    if (mode === "day") url = `/api/foxess/summary/day-accurate?date=${date}`;
+    if (mode === "month") url = `/api/foxess/summary/month-accurate?month=${ym(date)}`;
+    if (mode === "year") url = `/api/foxess/summary/year-accurate?year=${yyyy(date)}`;
 
-  useEffect(()=>{
-    let cancelled = false;
-    (async()=>{
-      try {
-        setLoading(true);
-        setError(null);
-
-        if (view === "day") {
-          const todayIso = new Date().toISOString().slice(0,10);
-          const url = cursor === todayIso
-            ? `/api/foxess/summary/day?date=${cursor}`
-            : `/api/foxess/summary/day-cached?date=${cursor}`;
-          const j = await getJSON(url);
-          const series: number[] = j?.today?.generation?.series ?? [];
-          const rows: DayRow[] = (Array.isArray(series) ? series : []).map((kwh, i) => ({
-            hour: `${String(i).padStart(2,"0")}:00`,
-            kwh: Number(kwh) || 0,
-          }));
-          if (!cancelled) setDayRows(rows);
-        } else if (view === "month") {
-          const j = await getJSON(`/api/foxess/summary/month?month=${ym(cursor)}`);
-          const rows: MonthRow[] = (j?.days || []).map((d: any) => ({
-            day: d?.date?.slice(-2) || "",
-            kwh: Number(d?.generation) || 0,
-          }));
-          if (!cancelled) setMonthRows(rows);
-        } else {
-          const j = await getJSON(`/api/foxess/summary/year?year=${yyyy(cursor)}`);
-          const rows: YearRow[] = (j?.months || []).map((m: any) => ({
-            month: String(m?.month || ""),
-            kwh: Number(m?.generation) || 0,
-          }));
-          if (!cancelled) setYearRows(rows);
+    setLoading(true);
+    fetch(url)
+      .then(r => r.json())
+      .then(j => {
+        if (!j?.ok) return;
+        if (mode === "day") {
+          setData((j.series || []).map((v: number, i: number) => ({
+            time: `${String(i).padStart(2,"0")}:00`,
+            value: v,
+          })));
         }
-      } catch(e: any) {
-        if (!cancelled) setError(e?.message || String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return ()=>{ cancelled = true; };
-  }, [view, cursor]);
+        if (mode === "month") {
+          setData((j.days || []).map((d: any) => ({
+            time: d.date.slice(-2),
+            value: d.generation,
+          })));
+        }
+        if (mode === "year") {
+          setData((j.months || []).map((m: any) => ({
+            time: m.date.slice(-2),
+            value: m.generation,
+          })));
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [mode, date]);
 
-  const chart = useMemo(()=>{
-    if (view === "day")   return { data: dayRows.map(r => ({ label: r.hour,  kwh: r.kwh })), labelTitle: "Godzina" };
-    if (view === "month") return { data: monthRows.map(r => ({ label: r.day,   kwh: r.kwh })), labelTitle: "Dzień" };
-    return { data: yearRows.map(r => ({ label: r.month, kwh: r.kwh })), labelTitle: "Miesiąc" };
-  }, [view, dayRows, monthRows, yearRows]);
-
-  const hasAny  = chart.data.length > 0;
-  const allZero = hasAny && chart.data.every(d => !d.kwh);
-  const subtitle = view === "day" ? cursor : view === "month" ? ym(cursor) : yyyy(cursor);
+  const title =
+    mode === "day" ? `Produkcja energii [kWh]\n${date}` :
+    mode === "month" ? `Produkcja energii [kWh]\n${ym(date)}` :
+    `Produkcja energii [kWh]\n${yyyy(date)}`;
 
   return (
-    <div className="pv-card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <div className="text-lg font-semibold">Produkcja energii [kWh]</div>
-          <div className="text-xs opacity-70">{subtitle}</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setView("day")}   className={`pv-chip ${view==="day"   ? "pv-chip--active":""}`}>Dzień</button>
-          <button onClick={() => setView("month")} className={`pv-chip ${view==="month" ? "pv-chip--active":""}`}>Miesiąc</button>
-          <button onClick={() => setView("year")}  className={`pv-chip ${view==="year"  ? "pv-chip--active":""}`}>Rok</button>
-          <div className="w-px h-5 bg-white/10 mx-1" />
-          <button onClick={() => setCursor(add(cursor, view, -1))} className="pv-chip">◀</button>
-          <button onClick={() => setCursor(add(cursor, view,  1))} className="pv-chip">▶</button>
-        </div>
+    <div className="p-4">
+      <h2 className="text-lg font-semibold whitespace-pre-line">{title}</h2>
+      <div className="flex gap-2 my-2">
+        <Button variant={mode === "day" ? "default" : "outline"} onClick={() => setMode("day")}>Dzień</Button>
+        <Button variant={mode === "month" ? "default" : "outline"} onClick={() => setMode("month")}>Miesiąc</Button>
+        <Button variant={mode === "year" ? "default" : "outline"} onClick={() => setMode("year")}>Rok</Button>
+      </div>
+      <div className="flex gap-2 my-2">
+        <Button onClick={() => setDate(d => add(d, mode, -1))}>◀</Button>
+        <Button onClick={() => setDate(d => add(d, mode, +1))}>▶</Button>
       </div>
 
-      <div ref={ref} className="w-full" style={{ height: H }}>
-        {loading && <div className="h-full grid place-items-center opacity-70 text-sm">Ładowanie…</div>}
-        {!loading && error && <div className="h-full grid place-items-center text-red-400 text-sm">{error}</div>}
-        {!loading && !error && !hasAny && <div className="h-full grid place-items-center opacity-70 text-sm">Brak danych do wyświetlenia.</div>}
-        {!loading && !error && hasAny && width <= 0 && (
-          <div className="h-full grid place-items-center opacity-70 text-sm">Oczekiwanie na rozmiar kontenera…</div>
-        )}
-        {!loading && !error && hasAny && width > 0 && (
-          <BarChart width={width} height={H} data={chart.data}>
-            <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-            <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-            <YAxis tick={{ fontSize: 10 }} width={60} unit=" kWh" />
-            <Tooltip
-              formatter={(val: any) => [`${Number(val).toFixed(2)} kWh`, "Energia"]}
-              labelFormatter={(label) => `${chart.labelTitle}: ${label}`}
-            />
-            <Bar dataKey="kwh" fill="#10b981" />
-          </BarChart>
+      <div className="h-80">
+        {loading ? (
+          <p>Ładowanie...</p>
+        ) : mode === "day" ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="time" />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="value" fill="#00C49F" />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="time" />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="value" fill="#00C49F" />
+            </BarChart>
+          </ResponsiveContainer>
         )}
       </div>
-
-      {hasAny && allZero && (
-        <div className="mt-2 text-xs opacity-70">
-          Uwaga: wszystkie wartości wynoszą 0 kWh — wykres może wyglądać na pusty.
-        </div>
-      )}
     </div>
   );
 }
