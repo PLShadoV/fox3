@@ -95,10 +95,10 @@ export default function RangeEnergyChart({ initialDate }: Props) {
           if (!cancelled) setData(rows);
         } else {
           const j = await getJSON(`/api/foxess/summary/year?year=${yyyy(date)}`);
-          // { months: [{ month: "01", generation: ... }] }
+          // { months: [{ month: "01", generation: ... }] } – dopasuj do swojego JSONa
           const rows = (j?.months || []).map((m: any) => ({
-            label: String(m?.month || ""),
-            kwh: Number(m?.generation) || 0,
+            label: String(m?.month || m?.date || ""),
+            kwh: Number(m?.generation ?? m?.kwh ?? 0) || 0,
           }));
           if (!cancelled) setData(rows);
         }
@@ -109,16 +109,17 @@ export default function RangeEnergyChart({ initialDate }: Props) {
       }
     })();
 
-  return () => { cancelled = true; };
+    return () => { cancelled = true; };
   }, [mode, date]);
 
   const subtitle = mode === "day" ? date : mode === "month" ? ym(date) : yyyy(date);
 
-  // Suma kWh dla widoku MIESIĄC
-  const monthTotal = useMemo(() => {
-    if (mode !== "month") return null;
-    const sum = data.reduce((a, r) => a + (Number(r.kwh) || 0), 0);
-    return +sum.toFixed(2);
+  // SUMY: dzień / miesiąc / rok
+  const totals = useMemo(() => {
+    const sum = +data.reduce((a, r) => a + (Number(r.kwh) || 0), 0).toFixed(2);
+    if (mode === "day")   return { label: "Suma dnia", value: sum };
+    if (mode === "month") return { label: "Suma miesiąca", value: sum };
+    return { label: "Suma roku", value: sum };
   }, [mode, data]);
 
   return (
@@ -165,9 +166,10 @@ export default function RangeEnergyChart({ initialDate }: Props) {
         )}
       </div>
 
-      {monthTotal !== null && (
+      {/* Podsumowania pod wykresem dla każdego trybu */}
+      {!loading && !err && data.length > 0 && (
         <div className="mt-2 text-sm opacity-80">
-          Suma miesiąca: <span className="font-semibold">{monthTotal.toFixed(2)} kWh</span>
+          {totals.label}: <span className="font-semibold">{totals.value.toFixed(2)} kWh</span>
         </div>
       )}
     </div>
