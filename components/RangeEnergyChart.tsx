@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 type Mode = "day" | "month" | "year";
@@ -109,10 +109,17 @@ export default function RangeEnergyChart({ initialDate }: Props) {
       }
     })();
 
-    return () => { cancelled = true; };
+  return () => { cancelled = true; };
   }, [mode, date]);
 
   const subtitle = mode === "day" ? date : mode === "month" ? ym(date) : yyyy(date);
+
+  // Suma kWh dla widoku MIESIĄC
+  const monthTotal = useMemo(() => {
+    if (mode !== "month") return null;
+    const sum = data.reduce((a, r) => a + (Number(r.kwh) || 0), 0);
+    return +sum.toFixed(2);
+  }, [mode, data]);
 
   return (
     <div className="pv-card p-4">
@@ -157,6 +164,12 @@ export default function RangeEnergyChart({ initialDate }: Props) {
           </BarChart>
         )}
       </div>
+
+      {monthTotal !== null && (
+        <div className="mt-2 text-sm opacity-80">
+          Suma miesiąca: <span className="font-semibold">{monthTotal.toFixed(2)} kWh</span>
+        </div>
+      )}
     </div>
   );
 }
