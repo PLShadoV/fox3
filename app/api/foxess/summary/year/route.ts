@@ -32,43 +32,69 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const year = url.searchParams.get("year"); // YYYY
     if (!year || !/^\d{4}$/.test(year)) {
-      return NextResponse.json(
-        { ok: false, error: "Parametr year (YYYY) jest wymagany" },
-        { status: 200 }
-      );
+      return NextResponse.json({ ok: false, error: "Parametr year (YYYY) jest wymagany" }, { status: 200 });
     }
 
     const base = originFrom(req);
-    const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`);
 
-    const out = await pMapLimit(months, 3, async (ym) => {
-      try {
-        const r = await fetch(`${base}/api/foxess/summary/month?month=${ym}`, {
-          cache: "no-store",
-        });
-        const j = await r.json();
-        const gen = Number(j?.totals?.generation ?? 0) || 0;
-        return { month: ym.slice(-2), generation: +gen.toFixed(2) };
-      } catch {
-        return { month: ym.slice(-2), generation: 0 };
+    // 1) init 12 mies.
+    const months = Array.from({ length: 12 }, (_, i) => ({ month: String(i + 1).padStart(2, "0"), generation: 0 }));
+
+    // 2) FoxESS natywnie
+    let nativeOk = false;
+    try {
+      const fox = await fetch(`${process.env.FOXESS_BASE ?? "https://www.foxesscloud.com"}/op/v1/device/energy/year`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "token": process.env.FOXESS_TOKEN || "",
+        },
+        body: JSON.stringify({
+          sn: process.env.FOXESS_SN,
+          year,
+          timeZone: process.env.FOXESS_TZ || "Europe/Warsaw",
+        }),
+        cache: "no-store",
+      });
+      if (fox.ok) {
+        const j = await fox.json();
+        const rows: any[] = j?.result || j?.data || [];
+        if (Array.isArray(rows)) {
+          for (const it of rows) {
+            const mm = String(it?.date || "").slice(-2);
+            const v = Number(it?.value);
+            const hit = months.find((m) => m.month === mm);
+            if (hit && Number.isFinite(v)) hit.generation = Math.max(0, v);
+          }
+          nativeOk = true;
+        }
       }
-    });
+    } catch {}
 
-    const total = +out
-      .reduce((a, m) => a + (Number(m.generation) || 0), 0)
-      .toFixed(2);
+    // 3) Fallback braków — na bazie naszego /month (który już ma fallbacki dzienne)
+    const need = months.filter(m => !Number(m.generation));
+    if (need.length) {
+      await pMapLimit(need, 3, async (m) => {
+        try {
+          const r = await fetch(`${base}/api/foxess/summary/month?month=${year}-${m.month}`, { cache: "no-store" });
+          const j = await r.json();
+          const val = Number(j?.totals?.generation ?? 0) || 0;
+          m.generation = +val.toFixed(2);
+        } catch { /* ignore */ }
+      });
+    }
+
+    const out = months.sort((a, b) => a.month.localeCompare(b.month));
+    const total = +out.reduce((a, x) => a + (Number(x.generation) || 0), 0).toFixed(2);
 
     return NextResponse.json({
       ok: true,
       year,
-      source: "sum(month)",
-      months: out.sort((a, b) => a.month.localeCompare(b.month)),
+      source: nativeOk ? "foxess-native+fallback" : "fallback-only",
+      months: out,
       totals: { generation: total },
     });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || String(e) },
-      { status: 200 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 200 });
   }
 }

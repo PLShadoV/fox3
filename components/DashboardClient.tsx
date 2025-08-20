@@ -70,26 +70,33 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
     return ()=> { alive = false; clearInterval(t); };
   }, []);
 
-  // Dzień + przychód (dla "dzisiaj" zawsze /day bez cache)
+  // Dzienna produkcja (kafelek) + seria godzinowa do wykresu mocy
   useEffect(()=>{
     let cancelled = false;
     setErr(null);
 
-    const today = new Date().toISOString().slice(0,10);
-    const ep = date === today ? "/api/foxess/summary/day" : "/api/foxess/summary/day-cached";
-
-    getJSON(`${ep}?date=${date}`)
+    // 1) dokładna suma dnia jak w aplikacji FoxESS
+    getJSON(`/api/foxess/summary/day-accurate?date=${date}`)
       .then(j => {
         if (cancelled) return;
-        const total = j?.today?.generation?.total;
-        const series = j?.today?.generation?.series ?? [];
-        const sumSeries = Array.isArray(series) ? series.reduce((a:number,v:any)=>a+(Number(v)||0),0) : 0;
-        const safeTotal = Number.isFinite(Number(total)) ? Number(total) : sumSeries;
-        setGenTotal(safeTotal ?? null);
-        setGenSeries(Array.isArray(series) ? series : []);
+        const total = Number(j?.total_kwh);
+        setGenTotal(Number.isFinite(total) ? total : null);
+        // Podmień serię jeśli endpoint ją zwrócił (żeby wykres mocy miał punkty)
+        const series = Array.isArray(j?.series) ? j.series : [];
+        if (series.length) setGenSeries(series);
       })
       .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
 
+    // 2) gdyby 1) nie podało serii — pobierz klasyczną serię godzinową
+    getJSON(`/api/foxess/summary/day-cached?date=${date}`)
+      .then(j => {
+        if (cancelled) return;
+        if (!Array.isArray(j?.today?.generation?.series)) return;
+        setGenSeries(j.today.generation.series);
+      })
+      .catch(()=>{ /* ignoruj – mamy total z day-accurate */ });
+
+    // 3) przychód dzienny
     getJSON(`/api/revenue/day?date=${date}&mode=${calcMode}`)
       .then(j => { if (!cancelled) setRevenue({ rows: j?.rows || [], total: j?.totals?.revenue_pln ?? null }); })
       .catch(e => { if (!cancelled) setErr(prev => prev || e.message); });
@@ -99,7 +106,6 @@ export default function DashboardClient({ initialDate }: { initialDate: string }
 
   // krzywa mocy (złagodzona)
   function easeInOutCubic(t:number){ return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3)/2; }
-
   const powerWave = useMemo(()=>{
     const today = new Date().toISOString().slice(0,10);
     const isToday = date === today;
