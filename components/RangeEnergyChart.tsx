@@ -29,7 +29,11 @@ function useMeasuredWidth(){
   },[]); return {ref,width};
 }
 
-async function getJSON(path:string){ const r=await fetch(path,{cache:"no-store"}); if(!r.ok) throw new Error(`HTTP ${r.status} ${path}`); return r.json(); }
+async function getJSON(path:string){
+  const r=await fetch(path,{cache:"no-store"});
+  if(!r.ok) throw new Error(`HTTP ${r.status} ${path}`);
+  return r.json();
+}
 
 export default function RangeEnergyChart({ initialDate }: Props){
   const [mode,setMode] = useState<Mode>("month");
@@ -40,6 +44,34 @@ export default function RangeEnergyChart({ initialDate }: Props){
   const H=320; const {ref,width}=useMeasuredWidth();
 
   useEffect(()=>{ if(initialDate) setDate(initialDate); },[initialDate]);
+
+  // helpery: pilnują, by szybkie endpointy MUSIAŁY zwrócić poprawne dane, inaczej fallback
+  async function loadMonthDataFastOrFallback(month: string){
+    try{
+      const j = await getJSON(`/api/foxess/summary/month-fast?month=${month}`);
+      const ok = j?.ok === true;
+      const arr = Array.isArray(j?.days) ? j.days : [];
+      if (!ok || arr.length === 0) throw new Error("month-fast empty");
+      return arr.map((d:any)=>({ label:String(d?.date||"").slice(-2), kwh:Number(d?.generation)||0 }));
+    }catch{
+      const j2 = await getJSON(`/api/foxess/summary/month?month=${month}`);
+      const arr2 = Array.isArray(j2?.days) ? j2.days : [];
+      return arr2.map((d:any)=>({ label:String(d?.date||"").slice(-2), kwh:Number(d?.generation)||0 }));
+    }
+  }
+  async function loadYearDataFastOrFallback(year: string){
+    try{
+      const j = await getJSON(`/api/foxess/summary/year-fast?year=${year}`);
+      const ok = j?.ok === true;
+      const arr = Array.isArray(j?.months) ? j.months : [];
+      if (!ok || arr.length === 0) throw new Error("year-fast empty");
+      return arr.map((m:any)=>({ label:String(m?.month||""), kwh:Number(m?.generation)||0 }));
+    }catch{
+      const j2 = await getJSON(`/api/foxess/summary/year?year=${year}`);
+      const arr2 = Array.isArray(j2?.months) ? j2.months : [];
+      return arr2.map((m:any)=>({ label:String(m?.month||""), kwh:Number(m?.generation)||0 }));
+    }
+  }
 
   useEffect(()=>{
     let cancelled=false;
@@ -52,33 +84,14 @@ export default function RangeEnergyChart({ initialDate }: Props){
           const rows = series.map((v,i)=>({ label:`${String(i).padStart(2,"0")}:00`, kwh:Number(v)||0 }));
           if(!cancelled) setData(rows);
         }else if(mode==="month"){
-          // SZYBKI endpoint
-          const j=await getJSON(`/api/foxess/summary/month-fast?month=${ym(date)}`);
-          const rows = (j?.days||[]).map((d:any)=>({ label:String(d?.date||"").slice(-2), kwh:Number(d?.generation)||0 }));
+          const rows = await loadMonthDataFastOrFallback(ym(date));
           if(!cancelled) setData(rows);
         }else{
-          // SZYBKI endpoint roku
-          const j=await getJSON(`/api/foxess/summary/year-fast?year=${yyyy(date)}`);
-          const rows = (j?.months||[]).map((m:any)=>({ label:String(m?.month||""), kwh:Number(m?.generation)||0 }));
+          const rows = await loadYearDataFastOrFallback(yyyy(date));
           if(!cancelled) setData(rows);
         }
       }catch(e:any){
-        // awaryjnie: fallback na wolniejsze, ale pewne endpointy
-        try{
-          if(mode==="month"){
-            const j=await getJSON(`/api/foxess/summary/month?month=${ym(date)}`);
-            const rows=(j?.days||[]).map((d:any)=>({ label:String(d?.date||"").slice(-2), kwh:Number(d?.generation)||0 }));
-            if(!cancelled) setData(rows);
-          }else if(mode==="year"){
-            const j=await getJSON(`/api/foxess/summary/year?year=${yyyy(date)}`);
-            const rows=(j?.months||[]).map((m:any)=>({ label:String(m?.month||""), kwh:Number(m?.generation)||0 }));
-            if(!cancelled) setData(rows);
-          }else{
-            setErr(e?.message||String(e));
-          }
-        }catch(e2:any){
-          if(!cancelled) setErr(e2?.message||String(e2));
-        }
+        if(!cancelled) setErr(e?.message||String(e));
       }finally{
         if(!cancelled) setLoading(false);
       }
@@ -108,13 +121,13 @@ export default function RangeEnergyChart({ initialDate }: Props){
         </div>
       </div>
 
-      <div ref={ref} className="w-full" style={{ height: H }}>
+      <div ref={ref} className="w-full" style={{ height: 320 }}>
         {loading && <div className="h-full grid place-items-center text-sm opacity-70">Ładowanie…</div>}
         {!loading && err && <div className="h-full grid place-items-center text-sm text-red-400">{err}</div>}
         {!loading && !err && width <= 0 && <div className="h-full grid place-items-center text-sm opacity-70">Oczekiwanie na rozmiar kontenera…</div>}
         {!loading && !err && width > 0 && data.length === 0 && <div className="h-full grid place-items-center text-sm opacity-70">Brak danych do wyświetlenia.</div>}
         {!loading && !err && width > 0 && data.length > 0 && (
-          <BarChart width={width} height={H} data={data}>
+          <BarChart width={width} height={320} data={data}>
             <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
             <XAxis dataKey="label" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} width={60} unit=" kWh" />
